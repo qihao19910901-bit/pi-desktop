@@ -1,0 +1,24 @@
+# 依赖
+node_modules/
+
+# 缓存与本地数据（均在 F 盘项目内，不提交）
+.cache/
+.userdata/
+
+# 打包输出
+dist/
+
+# 日志
+*.log
+npm-debug.log*
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Electron 运行时二进制（解包输出）
+Pi Desktop/

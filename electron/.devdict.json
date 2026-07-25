@@ -1,0 +1,13 @@
+{
+  "Select a provider or model": "选择提供商或模型",
+  "Add provider": "添加提供商",
+  "+ Add provider": "+ 添加提供商",
+  "Search providers...": "搜索提供商...",
+  "OpenAI / Anthropic compatible": "OpenAI / Anthropic 兼容",
+  "Custom endpoint format": "自定义端点格式",
+  "+ model": "+ 模型",
+  "Provider name": "提供商名称",
+  "Base URL": "基础 URL",
+  "ENV_VAR_NAME, !shell_command, or literal key": "ENV_VAR_NAME, !shell_command, 或字面密钥",
+  "Prefix with ! to run a shell command, or use an env var name": "以 ! 前缀运行 shell 命令，或使用环境变量名"
+}

@@ -1,0 +1,91 @@
+# electron-builder 配置
+appId: com.pi.desktop
+productName: Pi Desktop
+copyright: Copyright © 2026
+
+directories:
+  output: dist
+  buildResources: assets
+
+# asar 内只放 electron 运行时代码（只读 OK）
+# pi-web 是 Next.js 应用，运行时需写文件，不能进 asar，走 extraResources
+asar: true
+files:
+  - electron/main.js
+  - electron/preload.js
+  - electron/tray.js
+  - assets/icon.png
+  - package.json
+  - "!**/.cache/**"
+  - "!**/.userdata/**"
+  - "!**/dist/**"
+  - "!**/.gitignore"
+  - "!**/.npmrc"
+  - "!**/BRIEF.md"
+  - "!**/*.md"
+
+# 整个 node_modules 打到 resources/node_modules（可读写，pi-web 在此运行）
+# 排除开发依赖（electron/electron-builder/cross-env）和缓存
+extraResources:
+  - from: node_modules
+    to: node_modules
+    filter:
+      - "**/*"
+      - "!.bin/**"
+      - "!.cache/**"
+      - "!electron/**"
+      - "!electron-builder/**"
+      - "!cross-env/**"
+      - "!**/node_modules/electron/**"
+      - "!**/node_modules/electron-builder/**"
+      - "!**/node_modules/cross-env/**"
+      - "!**/*.md"
+      - "!**/README*"
+      - "!**/CHANGELOG*"
+      - "!**/test/**"
+      - "!**/tests/**"
+      - "!**/__tests__/**"
+      - "!**/.github/**"
+      - "!**/.eslint*"
+      - "!**/LICENSE*"
+      # 体积优化：排除运行时不需要的打包工具/类型/源码映射
+      - "!app-builder-bin/**"
+      - "!7zip-bin/**"
+      - "!typescript/**"
+      - "!**/node_modules/app-builder-bin/**"
+      - "!**/node_modules/7zip-bin/**"
+      - "!**/node_modules/typescript/**"
+      - "!**/*.d.ts"
+      - "!**/*.map"
+      - "!**/*.ts"
+
+# Windows 配置
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.png
+
+# NSIS 安装包
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Pi Desktop
+  uninstallDisplayName: Pi Desktop
+  deleteAppDataOnUninstall: false
+
+# 压缩（最大压缩，减小体积）
+compression: maximum
+
+# 不重装原生模块（pi-web 无原生模块）
+npmRebuild: false
+
+# 自动更新：GitHub Releases（需在 GitHub 新建 pi-desktop 公开仓库）
+publish:
+  provider: github
+  owner: qihao19910901-bit
+  repo: pi-desktop
