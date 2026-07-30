@@ -1,0 +1,106 @@
+# auto-update.yml — 自动检测上游 pi/pi-web 更新并构建发布
+#
+# 触发方式：
+#   1. 定时：每天 UTC 0 点（北京时间 8 点）
+#   2. 手动：GitHub Actions 页面 → Run workflow
+#
+# 流程：
+#   npm 检查新版本 → 有更新则升级依赖 → electron-builder 打包并发布 GitHub Release
+#   → 用户桌面端 electron-updater 自动检测到新 release → 提示更新
+
+name: Auto Update & Release
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '强制重建（即使没有新版本）'
+        type: boolean
+        default: false
+
+jobs:
+  check-and-release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 检查 @agegr/pi-web 最新版本
+        id: check
+        shell: bash
+        run: |
+          CURRENT=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
+          LATEST=$(npm view @agegr/pi-web version)
+          echo "current=${CURRENT}" >> $GITHUB_OUTPUT
+          echo "latest=${LATEST}" >> $GITHUB_OUTPUT
+
+          NEEDS_UPDATE="false"
+          if [ "$CURRENT" != "$LATEST" ]; then
+            NEEDS_UPDATE="true"
+          fi
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            NEEDS_UPDATE="true"
+          fi
+          echo "needs_update=${NEEDS_UPDATE}" >> $GITHUB_OUTPUT
+
+          echo "pi-web  当前: ${CURRENT}  最新: ${LATEST}  需更新: ${NEEDS_UPDATE}"
+
+      - name: 升级依赖
+        if: steps.check.outputs.needs_update == 'true'
+        shell: bash
+        run: |
+          npm install @agegr/pi-web@latest
+          PIWEB_NEW=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
+          PI_NEW=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
+          echo ">>> 已升级 pi-web → v${PIWEB_NEW} (pi v${PI_NEW})"
+
+          # 更新 package.json 中的版本引用
+          node -e "
+            const pkg = require('./package.json');
+            pkg.dependencies['@agegr/pi-web'] = '^${PIWEB_NEW}';
+            require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: 提交版本变更 [skip ci]
+        if: steps.check.outputs.needs_update == 'true'
+        shell: bash
+        run: |
+          git config user.name "pi-desktop-bot"
+          git config user.email "bot@pi-desktop.local"
+          git add package.json package-lock.json
+          PIWEB_NEW=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
+          PI_NEW=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
+          git commit -m "chore: bump pi-web to ${PIWEB_NEW} (pi ${PI_NEW}) [skip ci]"
+          git push
+
+      - name: 构建并发布
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build
+
+      - name: 汇总
+        shell: bash
+        run: |
+          echo "========================================="
+          echo "pi-web 当前: ${{ steps.check.outputs.current }}"
+          echo "pi-web 最新: ${{ steps.check.outputs.latest }}"
+          echo "是否更新:   ${{ steps.check.outputs.needs_update }}"
+          echo "========================================="
