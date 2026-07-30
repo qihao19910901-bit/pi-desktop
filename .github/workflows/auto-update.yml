@@ -97,11 +97,15 @@ jobs:
           PI_NEW=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
           echo ">>> 已升级 pi-web → v${PIWEB_NEW}, pi → v${PI_NEW}"
 
-          # 更新 package.json 中的版本引用
+          # 更新 package.json：依赖版本 + 自增 patch 号
           node -e "
             const pkg = require('./package.json');
             pkg.dependencies['@agegr/pi-web'] = '^${PIWEB_NEW}';
             pkg.dependencies['@earendil-works/pi-coding-agent'] = '^${PI_NEW}';
+            // 自增 patch 版本号（1.1.0 → 1.1.1）
+            const [major, minor, patch] = pkg.version.split('.').map(Number);
+            pkg.version = major + '.' + minor + '.' + (patch + 1);
+            console.log('pi-desktop version bumped to ' + pkg.version);
             require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
@@ -114,7 +118,8 @@ jobs:
           git add package.json package-lock.json
           PIWEB_NEW=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
           PI_NEW=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
-          git commit -m "chore: bump to pi-web ${PIWEB_NEW} + pi ${PI_NEW} [skip ci]"
+          DESKTOP_VER=$(node -p "require('./package.json').version")
+          git commit -m "chore: bump to pi-desktop ${DESKTOP_VER} (pi-web ${PIWEB_NEW}, pi ${PI_NEW}) [skip ci]"
           git push
 
       - name: 构建并发布
