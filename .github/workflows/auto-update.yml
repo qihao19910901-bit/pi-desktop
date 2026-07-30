@@ -1,11 +1,12 @@
-# auto-update.yml — 自动检测上游 pi/pi-web 更新并构建发布
+# auto-update.yml — 双轨检测：pi-web + pi-coding-agent 任一更新即自动构建
 #
 # 触发方式：
 #   1. 定时：每天 UTC 0 点（北京时间 8 点）
 #   2. 手动：GitHub Actions 页面 → Run workflow
 #
 # 流程：
-#   npm 检查新版本 → 有更新则升级依赖 → electron-builder 打包并发布 GitHub Release
+#   npm 检查 pi-web 和 pi-coding-agent 最新版本
+#   → 任一有新版本则升级依赖 → electron-builder 打包并发布 GitHub Release
 #   → 用户桌面端 electron-updater 自动检测到新 release → 提示更新
 
 name: Auto Update & Release
@@ -41,39 +42,66 @@ jobs:
       - name: 安装依赖
         run: npm install
 
-      - name: 检查 @agegr/pi-web 最新版本
+      - name: 检查更新（pi-web + pi-coding-agent）
         id: check
         shell: bash
         run: |
-          CURRENT=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
-          LATEST=$(npm view @agegr/pi-web version)
-          echo "current=${CURRENT}" >> $GITHUB_OUTPUT
-          echo "latest=${LATEST}" >> $GITHUB_OUTPUT
+          # 当前版本
+          PIWEB_CUR=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
+          PI_CUR=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
+
+          # npm 最新版本
+          PIWEB_LATEST=$(npm view @agegr/pi-web version)
+          PI_LATEST=$(npm view @earendil-works/pi-coding-agent version)
+
+          echo "piweb_current=${PIWEB_CUR}" >> $GITHUB_OUTPUT
+          echo "piweb_latest=${PIWEB_LATEST}" >> $GITHUB_OUTPUT
+          echo "pi_current=${PI_CUR}" >> $GITHUB_OUTPUT
+          echo "pi_latest=${PI_LATEST}" >> $GITHUB_OUTPUT
 
           NEEDS_UPDATE="false"
-          if [ "$CURRENT" != "$LATEST" ]; then
+          REASON=""
+
+          if [ "$PIWEB_CUR" != "$PIWEB_LATEST" ]; then
             NEEDS_UPDATE="true"
+            REASON="pi-web: ${PIWEB_CUR} → ${PIWEB_LATEST}"
           fi
+
+          if [ "$PI_CUR" != "$PI_LATEST" ]; then
+            NEEDS_UPDATE="true"
+            REASON="${REASON}${REASON:+ / }pi: ${PI_CUR} → ${PI_LATEST}"
+          fi
+
           if [ "${{ github.event.inputs.force }}" = "true" ]; then
             NEEDS_UPDATE="true"
+            REASON="手动强制重建"
           fi
-          echo "needs_update=${NEEDS_UPDATE}" >> $GITHUB_OUTPUT
 
-          echo "pi-web  当前: ${CURRENT}  最新: ${LATEST}  需更新: ${NEEDS_UPDATE}"
+          echo "needs_update=${NEEDS_UPDATE}" >> $GITHUB_OUTPUT
+          echo "reason=${REASON}" >> $GITHUB_OUTPUT
+
+          echo "pi-web: ${PIWEB_CUR} → ${PIWEB_LATEST}"
+          echo "pi:     ${PI_CUR} → ${PI_LATEST}"
+          echo "更新:   ${NEEDS_UPDATE} (${REASON})"
 
       - name: 升级依赖
         if: steps.check.outputs.needs_update == 'true'
         shell: bash
         run: |
+          # 升级 pi-web（会顺带更新 pi-coding-agent）
           npm install @agegr/pi-web@latest
+          # 升级 pi-coding-agent（确保 override 生效，即使 pi-web 没更新）
+          npm install @earendil-works/pi-coding-agent@latest
+
           PIWEB_NEW=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
           PI_NEW=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
-          echo ">>> 已升级 pi-web → v${PIWEB_NEW} (pi v${PI_NEW})"
+          echo ">>> 已升级 pi-web → v${PIWEB_NEW}, pi → v${PI_NEW}"
 
           # 更新 package.json 中的版本引用
           node -e "
             const pkg = require('./package.json');
             pkg.dependencies['@agegr/pi-web'] = '^${PIWEB_NEW}';
+            pkg.dependencies['@earendil-works/pi-coding-agent'] = '^${PI_NEW}';
             require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
@@ -86,7 +114,7 @@ jobs:
           git add package.json package-lock.json
           PIWEB_NEW=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
           PI_NEW=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
-          git commit -m "chore: bump pi-web to ${PIWEB_NEW} (pi ${PI_NEW}) [skip ci]"
+          git commit -m "chore: bump to pi-web ${PIWEB_NEW} + pi ${PI_NEW} [skip ci]"
           git push
 
       - name: 构建并发布
@@ -99,7 +127,8 @@ jobs:
         shell: bash
         run: |
           echo "========================================="
-          echo "pi-web 当前: ${{ steps.check.outputs.current }}"
-          echo "pi-web 最新: ${{ steps.check.outputs.latest }}"
-          echo "是否更新:   ${{ steps.check.outputs.needs_update }}"
+          echo "pi-web: ${{ steps.check.outputs.piweb_current }} → ${{ steps.check.outputs.piweb_latest }}"
+          echo "pi:     ${{ steps.check.outputs.pi_current }} → ${{ steps.check.outputs.pi_latest }}"
+          echo "结果:   ${{ steps.check.outputs.needs_update == 'true' && '已更新' || '已是最新' }}"
+          echo "原因:   ${{ steps.check.outputs.reason }}"
           echo "========================================="
