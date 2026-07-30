@@ -95,7 +95,6 @@ jobs:
 
           PIWEB_NEW=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
           PI_NEW=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
-          echo ">>> 已升级 pi-web → v${PIWEB_NEW}, pi → v${PI_NEW}"
 
           # 更新 package.json：依赖版本 + 自增 patch 号
           node -e "
@@ -108,6 +107,10 @@ jobs:
             console.log('pi-desktop version bumped to ' + pkg.version);
             require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
+
+          DESKTOP_NEW=$(node -p "require('./package.json').version")
+          echo ">>> 已升级 pi-web → v${PIWEB_NEW}, pi → v${PI_NEW}, pi-desktop → v${DESKTOP_NEW}"
+          echo "desktop_ver=${DESKTOP_NEW}" >> $GITHUB_OUTPUT
 
       - name: 提交版本变更 [skip ci]
         if: steps.check.outputs.needs_update == 'true'
@@ -122,19 +125,36 @@ jobs:
           git commit -m "chore: bump to pi-desktop ${DESKTOP_VER} (pi-web ${PIWEB_NEW}, pi ${PI_NEW}) [skip ci]"
           git push
 
-      - name: 构建并发布
+      - name: 构建
         if: steps.check.outputs.needs_update == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           DESKTOP_VER=$(node -p "require('./package.json').version")
-          # 创建 git tag（electron-builder 发布需要）
-          git tag -a "v${DESKTOP_VER}" -m "v${DESKTOP_VER}"
-          git push origin "v${DESKTOP_VER}"
-          echo ">>> tag v${DESKTOP_VER} 已推送"
-          # 构建并发布
+          echo ">>> 构建 pi-desktop v${DESKTOP_VER}"
           npm run build
+          echo ">>> 构建产物:"
+          ls -la dist/*.exe dist/*.yml dist/*.blockmap 2>/dev/null || echo "  (未找到)"
+
+      - name: 发布 Release
+        if: steps.check.outputs.needs_update == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.check.outputs.desktop_ver }}
+          name: "v${{ steps.check.outputs.desktop_ver }} (pi-web ${{ steps.check.outputs.piweb_latest }}, pi ${{ steps.check.outputs.pi_latest }})"
+          body: |
+            🤖 自动构建
+
+            | 组件 | 版本 |
+            |------|------|
+            | pi-desktop | v${{ steps.check.outputs.desktop_ver }} |
+            | pi-web | v${{ steps.check.outputs.piweb_latest }} |
+            | pi | v${{ steps.check.outputs.pi_latest }} |
+          files: |
+            dist/*.exe
+            dist/*.yml
+            dist/*.blockmap
+          draft: false
+          prerelease: false
 
       - name: 汇总
         shell: bash
