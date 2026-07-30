@@ -126,7 +126,15 @@ jobs:
         if: steps.check.outputs.needs_update == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build
+        shell: bash
+        run: |
+          DESKTOP_VER=$(node -p "require('./package.json').version")
+          # 创建 git tag（electron-builder 发布需要）
+          git tag -a "v${DESKTOP_VER}" -m "v${DESKTOP_VER}"
+          git push origin "v${DESKTOP_VER}"
+          echo ">>> tag v${DESKTOP_VER} 已推送"
+          # 构建并发布
+          npm run build
 
       - name: 汇总
         shell: bash
