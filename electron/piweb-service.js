@@ -103,7 +103,23 @@ function createPiWebService({ spawnImpl, waitForReady, stopTree, restartDelayMs 
         launch(activeSpec).catch((error) => logger.error('pi-web restart failed', error));
       }, restartDelayMs);
     });
-    await waitForReady(spec.url);
+    try {
+      await waitForReady(spec.url);
+    } catch (readinessError) {
+      intentional = true;
+      if (restartTimer) clearTimeout(restartTimer);
+      restartTimer = null;
+      const ownsLaunched = child === launched;
+      if (ownsLaunched) child = null;
+      if (ownsLaunched && Number.isInteger(launched.pid)) {
+        try {
+          await stopTree(launched.pid);
+        } catch (cleanupError) {
+          logger.error('pi-web readiness cleanup failed', cleanupError);
+        }
+      }
+      throw readinessError;
+    }
   };
 
   return {

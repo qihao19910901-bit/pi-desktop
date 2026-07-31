@@ -114,6 +114,29 @@ test('start waits for readiness and diagnostics retain only the last 20 lines', 
   assert.equal('child' in diagnostics, false);
 });
 
+test('failed readiness stops the owned child without scheduling a restart', async () => {
+  const child = fakeChild(150);
+  const readinessError = new Error('not ready');
+  const cleanupError = new Error('cannot stop');
+  const stopped = [];
+  const logged = [];
+  let spawnCount = 0;
+  const service = createPiWebService({
+    spawnImpl: () => { spawnCount += 1; return child; },
+    waitForReady: async () => { throw readinessError; },
+    stopTree: async (pid) => { stopped.push(pid); throw cleanupError; },
+    restartDelayMs: 0,
+    logger: { ...silentLogger, error: (...args) => logged.push(args) },
+  });
+  await assert.rejects(service.start(SPEC), (error) => error === readinessError);
+  assert.deepEqual(stopped, [150]);
+  assert.equal(logged[0][1], cleanupError);
+  assert.equal(service.getDiagnostics().pid, null);
+  child.emit('exit', 1, null);
+  await tick();
+  assert.equal(spawnCount, 1);
+});
+
 test('first unexpected exit restarts once with the same spec and second does not', async () => {
   const children = [];
   const calls = [];
