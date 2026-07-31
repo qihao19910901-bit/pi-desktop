@@ -84,12 +84,15 @@ function createPiWebService({ spawnImpl, waitForReady, stopTree, restartDelayMs 
     child = launched;
     let ready = false;
     let terminated = false;
+    let terminationError;
     let rejectEarlyFailure;
     const earlyFailure = new Promise((_resolve, reject) => { rejectEarlyFailure = reject; });
     const terminate = (error, code = null, signal = null) => {
       if (terminated) return;
       terminated = true;
+      terminationError = error;
       if (!ready) {
+        if (child === launched) child = null;
         rejectEarlyFailure(error);
         return;
       }
@@ -125,6 +128,9 @@ function createPiWebService({ spawnImpl, waitForReady, stopTree, restartDelayMs 
     try {
       await Promise.race([waitForReady(spec.url), earlyFailure]);
       if (generation !== token) throw new Error('pi-web start cancelled');
+      if (terminated || child !== launched) {
+        throw terminationError || new Error('pi-web start cancelled');
+      }
       ready = true;
     } catch (readinessError) {
       if (generation !== token) throw new Error('pi-web start cancelled');

@@ -205,6 +205,43 @@ test('child error rejects an in-flight start without an unhandled event or resta
   assert.equal(spawnCount, 1);
 });
 
+test('pre-ready exit clears dead ownership without stopping the exited PID', async () => {
+  const child = fakeChild(170);
+  const stopped = [];
+  const service = createPiWebService({
+    spawnImpl: () => child,
+    waitForReady: () => new Promise(() => {}),
+    stopTree: (pid) => stopped.push(pid),
+    logger: silentLogger,
+  });
+  const started = service.start(SPEC);
+  child.emit('exit', 1, null);
+  await assert.rejects(started, /pi-web exited/);
+  assert.equal(service.getDiagnostics().pid, null);
+  await service.stop();
+  assert.deepEqual(stopped, []);
+});
+
+test('same-turn readiness and exit cannot resolve with dead ownership', async () => {
+  const child = fakeChild(180);
+  const stopped = [];
+  let resolveReady;
+  const readiness = new Promise((resolve) => { resolveReady = resolve; });
+  const service = createPiWebService({
+    spawnImpl: () => child,
+    waitForReady: () => readiness,
+    stopTree: (pid) => stopped.push(pid),
+    logger: silentLogger,
+  });
+  const started = service.start(SPEC);
+  resolveReady();
+  child.emit('exit', 1, null);
+  await assert.rejects(started, /pi-web exited|cancelled/);
+  assert.equal(service.getDiagnostics().pid, null);
+  await service.stop();
+  assert.deepEqual(stopped, []);
+});
+
 test('first unexpected exit restarts once with the same spec and second does not', async () => {
   const children = [];
   const calls = [];
