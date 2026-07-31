@@ -19,8 +19,11 @@ function buildPiWebLaunchSpec(options) {
     ? path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', '@agegr', 'pi-web', 'bin', 'pi-web.js')
     : developmentEntry;
   const childEnv = { ...env };
-  delete childEnv.NODE_OPTIONS;
-  delete childEnv.NODE_OPTIONS_PATH;
+  for (const key of Object.keys(childEnv)) {
+    if (key.toUpperCase() === 'NODE_OPTIONS' || key.toUpperCase() === 'NODE_OPTIONS_PATH') {
+      delete childEnv[key];
+    }
+  }
   childEnv.ELECTRON_RUN_AS_NODE = '1';
   childEnv.PI_WEB_NO_OPEN = '1';
   childEnv.NEXT_TELEMETRY_DISABLED = '1';
