@@ -11,7 +11,7 @@
     "verify:package": "node scripts/verify-package.js",
     "smoke:package": "node scripts/smoke-packaged-app.js",
     "dist": "npm run build",
-    "start:piweb": "node_modules/@agegr/pi-web/bin/pi-web.js --hostname 0.0.0.0"
+    "start:piweb": "node_modules/@agegr/pi-web/bin/pi-web.js --hostname 127.0.0.1 --no-open"
   },
   "keywords": [
     "pi",

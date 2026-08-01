@@ -23,3 +23,10 @@ test('the repository exposes deterministic quality commands', () => {
   assert.equal(pkg.scripts['verify:package'], 'node scripts/verify-package.js');
   assert.equal(pkg.scripts['smoke:package'], 'node scripts/smoke-packaged-app.js');
 });
+
+test('development pi-web script is loopback only', () => {
+  const script = pkg.scripts['start:piweb'];
+  assert.match(script, /--hostname 127\.0\.0\.1/);
+  assert.match(script, /--no-open/);
+  assert.doesNotMatch(script, /0\.0\.0\.0/);
+});
