@@ -25,8 +25,5 @@ test('the repository exposes deterministic quality commands', () => {
 });
 
 test('development pi-web script is loopback only', () => {
-  const script = pkg.scripts['start:piweb'];
-  assert.match(script, /--hostname 127\.0\.0\.1/);
-  assert.match(script, /--no-open/);
-  assert.doesNotMatch(script, /0\.0\.0\.0/);
+  assert.equal(pkg.scripts['start:piweb'], 'node_modules/@agegr/pi-web/bin/pi-web.js --hostname 127.0.0.1 --no-open');
 });
