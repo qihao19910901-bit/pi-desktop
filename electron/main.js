@@ -19,9 +19,13 @@ const { initUpdater, checkForUpdatesManual } = require('./updater');
 const PROJECT_ROOT = path.join(__dirname, '..');
 const PORT = parsePort(process.env.PI_WEB_PORT);
 const PIWEB_URL = `http://127.0.0.1:${PORT}`;
+const SMOKE_MODE = process.env.PI_DESKTOP_SMOKE === '1';
 
 // 开发时 userData 放项目内 F 盘（避免 C 盘）；打包后用 Electron 默认（AppData）
-if (!app.isPackaged) {
+if (SMOKE_MODE) {
+  if (!process.env.PI_DESKTOP_USER_DATA) throw new Error('PI_DESKTOP_USER_DATA is required in smoke mode');
+  app.setPath('userData', path.resolve(process.env.PI_DESKTOP_USER_DATA));
+} else if (!app.isPackaged) {
   app.setPath('userData', path.join(PROJECT_ROOT, '.userdata'));
 }
 const USERDATA_DIR = app.getPath('userData');
@@ -105,7 +109,7 @@ if (!gotLock) {
 async function bootstrap() {
   setAppMenu();
   createWindow();
-  initUpdater();
+  if (!SMOKE_MODE) initUpdater();
   createTray({
     onNewWindow: () => createWindow(),
     onNewSession: () => {
