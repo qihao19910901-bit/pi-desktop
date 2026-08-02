@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const MAX_STDERR_FRAGMENT_CHARS = 64 * 1024;
-async function probePiWeb(url, { requestTimeoutMs = 2000, contentSignal = 'Pi Agent Web' } = {}) {
+async function probePiWeb(url, { requestTimeoutMs = 2000, contentSignal = '<title>Pi Web</title>' } = {}) {
   return new Promise((resolve, reject) => {
     let settled = false;
     let deadlineTimer;

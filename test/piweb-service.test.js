@@ -31,15 +31,17 @@ async function serve(handler) {
 const close = (server) => new Promise((resolve, reject) =>
   server.close((error) => error ? reject(error) : resolve()));
 
-test('probe requires a 2xx response containing the Pi Agent Web signal', async () => {
+test('probe requires a 2xx response containing the canonical Pi Web title signal', async () => {
   const { server, url } = await serve((request, response) => {
-    if (request.url === '/unavailable') response.writeHead(503).end('Pi Agent Web');
-    else if (request.url === '/wrong-content') response.writeHead(200).end('starting');
-    else response.writeHead(201).end('Pi Agent Web ready');
+    if (request.url === '/unavailable') response.writeHead(503).end('<title>Pi Web</title>');
+    else if (request.url === '/plain-text') response.writeHead(200).end('Pi Web');
+    else if (request.url === '/wrong-markup') response.writeHead(200).end('<h1>Pi Web</h1>');
+    else response.writeHead(201).end('<title>Pi Web</title>');
   });
   try {
     await assert.rejects(probePiWeb(`${url}/unavailable`), /status 503/);
-    await assert.rejects(probePiWeb(`${url}/wrong-content`), /missing content signal/);
+    await assert.rejects(probePiWeb(`${url}/plain-text`), /missing content signal/);
+    await assert.rejects(probePiWeb(`${url}/wrong-markup`), /missing content signal/);
     await assert.doesNotReject(probePiWeb(`${url}/ready`));
   } finally {
     await close(server);
