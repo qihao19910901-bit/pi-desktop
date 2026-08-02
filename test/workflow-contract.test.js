@@ -23,6 +23,9 @@ test('release lookup steps target the current repo and tolerate an expected miss
     assert.match(run, /gh release view[^\r\n]*--repo \$\{\{ github\.repository \}\}/);
     assert.match(run, /try\s*\{\s*\r?\n\s*(?:\$release = )?gh release view[^\r\n]*2>\$null\s*\r?\n\s*\}\s*catch\s*\{/);
     assert.match(run, /\$LASTEXITCODE/);
+    assert.match(run, /\$releaseLookupExit = \$LASTEXITCODE/);
+    assert.match(run, /cmd \/c exit 0/);
+    assert.match(run, /if\s*\(\$releaseLookupExit -eq 0\)/);
   }
 });
 
@@ -31,4 +34,9 @@ test('mutating release commands remain outside tolerated lookup failures', () =>
   assert.match(run, /gh release edit/);
   assert.match(run, /gh release create/);
   assert.doesNotMatch(run, /try\s*\{[\s\S]*gh release (?:edit|create)[\s\S]*\}\s*catch/);
+});
+
+test('both release probes preserve and reset the native exit status', () => {
+  assert.equal((source.match(/\$releaseLookupExit = \$LASTEXITCODE/g) || []).length, 2);
+  assert.equal((source.match(/cmd \/c exit 0/g) || []).length, 2);
 });

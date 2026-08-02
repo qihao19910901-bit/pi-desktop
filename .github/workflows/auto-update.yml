@@ -48,9 +48,11 @@ jobs:
           try {
             $release = gh release view $tag --repo ${{ github.repository }} --json assets,isDraft,url 2>$null
           } catch { $release = $null }
+          $releaseLookupExit = $LASTEXITCODE
+          cmd /c exit 0
           $complete = $false
           $url = ''
-          if ($LASTEXITCODE -eq 0) {
+          if ($releaseLookupExit -eq 0) {
             $release = $release | ConvertFrom-Json
             $url = $release.url
             $assetArgs = @('scripts/verify-release-assets.js', '--version', $candidate.desktopVersion)
@@ -123,9 +125,11 @@ jobs:
           try {
             gh release view $env:TAG --repo ${{ github.repository }} 2>$null
           } catch {
-            # Expected when this verified tag has no Release yet; LASTEXITCODE selects create below.
+            # Expected when this verified tag has no Release yet; the saved probe status selects create below.
           }
-          if ($LASTEXITCODE -eq 0) { gh release edit $env:TAG --draft }
+          $releaseLookupExit = $LASTEXITCODE
+          cmd /c exit 0
+          if ($releaseLookupExit -eq 0) { gh release edit $env:TAG --draft }
           else { gh release create $env:TAG --draft --title $env:TAG --notes 'Verified automated build' }
       - name: Upload candidate assets
         if: steps.candidate.outputs.skip != 'true'
