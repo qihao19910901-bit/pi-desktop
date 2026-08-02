@@ -5,9 +5,13 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "node electron/dev.js",
+    "test": "node --test",
+    "build:dir": "node electron/run-build.js --dir",
     "build": "node electron/run-build.js",
+    "verify:package": "node scripts/verify-package.js",
+    "smoke:package": "node scripts/smoke-packaged-app.js",
     "dist": "npm run build",
-    "start:piweb": "node_modules/@agegr/pi-web/bin/pi-web.js --hostname 0.0.0.0"
+    "start:piweb": "node_modules/@agegr/pi-web/bin/pi-web.js --hostname 127.0.0.1 --no-open"
   },
   "keywords": [
     "pi",
@@ -18,10 +22,13 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=24"
+  },
   "dependencies": {
-    "@agegr/pi-web": "^0.8.6",
-    "@earendil-works/pi-coding-agent": "^0.83.0",
-    "electron-updater": "^6.8.9"
+    "@agegr/pi-web": "0.8.6",
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "electron-updater": "6.8.9"
   },
   "overrides": {
     "@agegr/pi-web": {
@@ -29,8 +36,9 @@
     }
   },
   "devDependencies": {
-    "cross-env": "^7.0.3",
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "@electron/asar": "3.4.1",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
+    "yaml": "2.9.0"
   }
 }

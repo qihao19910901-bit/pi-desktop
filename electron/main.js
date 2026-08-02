@@ -6,21 +6,26 @@ const {
   ipcMain,
   shell,
   Menu,
-  session,
 } = require('electron');
-const { spawn, execSync } = require('child_process');
+const { execFile, spawn } = require('node:child_process');
 const path = require('path');
-const http = require('http');
 const fs = require('fs');
+const { buildPiWebLaunchSpec, parsePort } = require('./piweb-runtime');
+const { createPiWebService, waitForPiWeb } = require('./piweb-service');
+const { escapeHtml } = require('./safe-html');
 const { createTray, destroyTray } = require('./tray');
 const { initUpdater, checkForUpdatesManual } = require('./updater');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
-const PORT = parseInt(process.env.PI_WEB_PORT || '30141', 10);
-const PIWEB_URL = `http://localhost:${PORT}`;
+const PORT = parsePort(process.env.PI_WEB_PORT);
+const PIWEB_URL = `http://127.0.0.1:${PORT}`;
+const SMOKE_MODE = process.env.PI_DESKTOP_SMOKE === '1';
 
 // 开发时 userData 放项目内 F 盘（避免 C 盘）；打包后用 Electron 默认（AppData）
-if (!app.isPackaged) {
+if (SMOKE_MODE) {
+  if (!process.env.PI_DESKTOP_USER_DATA) throw new Error('PI_DESKTOP_USER_DATA is required in smoke mode');
+  app.setPath('userData', path.resolve(process.env.PI_DESKTOP_USER_DATA));
+} else if (!app.isPackaged) {
   app.setPath('userData', path.join(PROJECT_ROOT, '.userdata'));
 }
 const USERDATA_DIR = app.getPath('userData');
@@ -29,8 +34,57 @@ const STATE_FILE = path.join(USERDATA_DIR, 'window-state.json');
 // 多窗口管理
 const windows = new Set();
 let mainWindow = null; // 主窗口（窗口记忆用，第一个创建的窗口）
-let piwebProcess = null;
 let piwebReady = false;
+let quitCleanupStarted = false;
+let quitCleanupComplete = false;
+
+function stopTree(pid) {
+  if (!Number.isInteger(pid) || pid < 1) {
+    return Promise.reject(new Error(`invalid owned pid: ${pid}`));
+  }
+  if (process.platform !== 'win32') {
+    try {
+      process.kill(pid, 'SIGTERM');
+      return Promise.resolve();
+    } catch (error) {
+      if (error.code === 'ESRCH') return Promise.resolve();
+      return Promise.reject(error);
+    }
+  }
+  return new Promise((resolve, reject) => {
+    execFile(
+      'taskkill',
+      ['/pid', String(pid), '/f', '/t'],
+      { windowsHide: true, timeout: 10000 },
+      (error) => error ? reject(error) : resolve(),
+    );
+  });
+}
+
+const piwebService = createPiWebService({
+  spawnImpl: (command, args, options) => spawn(command, args, {
+    ...options,
+    windowsHide: true,
+    shell: false,
+  }),
+  waitForReady: (url) => waitForPiWeb(url),
+  stopTree,
+});
+
+function buildLaunchSpec() {
+  return {
+    ...buildPiWebLaunchSpec({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      developmentEntry: app.isPackaged ? undefined : require.resolve('@agegr/pi-web/bin/pi-web.js'),
+      execPath: process.execPath,
+      userDataDir: USERDATA_DIR,
+      port: PORT,
+      env: process.env,
+    }),
+    url: PIWEB_URL,
+  };
+}
 
 // ============ 单实例锁 ============
 const gotLock = app.requestSingleInstanceLock();
@@ -54,9 +108,8 @@ if (!gotLock) {
 // ============ 启动流程 ============
 async function bootstrap() {
   setAppMenu();
-  startPiWeb();
   createWindow();
-  initUpdater();
+  if (!SMOKE_MODE) initUpdater();
   createTray({
     onNewWindow: () => createWindow(),
     onNewSession: () => {
@@ -64,108 +117,19 @@ async function bootstrap() {
       if (w) w.webContents.send('menu-new-session');
     },
   });
-  // 健康检查，就绪后所有窗口加载 pi-web
-  waitForPiWeb(PIWEB_URL, 60000)
-    .then(() => {
-      piwebReady = true;
-      for (const w of windows) {
-        if (!w.isDestroyed()) w.loadURL(PIWEB_URL);
-      }
-    })
-    .catch((err) => {
-      console.error('[main] pi-web 启动失败:', err.message);
-      showErrorPage('Pi 服务启动失败，请检查 API Key 配置或重试。\n错误: ' + err.message);
-    });
-}
-
-// ============ pi-web 服务管理 ============
-function startPiWeb() {
-  let piwebEntry;
-  if (app.isPackaged) {
-    piwebEntry = path.join(process.resourcesPath, 'node_modules', '@agegr', 'pi-web', 'bin', 'pi-web.js');
-  } else {
-    try {
-      piwebEntry = require.resolve('@agegr/pi-web/bin/pi-web.js');
-    } catch (e) {
-      console.error('[pi-web] 找不到 @agegr/pi-web 入口:', e.message);
-      return;
-    }
-  }
-  if (!fs.existsSync(piwebEntry)) {
-    console.error('[pi-web] 入口文件不存在:', piwebEntry);
+  try {
+    await piwebService.start(buildLaunchSpec());
+  } catch (err) {
+    console.error('[main] pi-web 启动失败:', err.message);
+    showErrorPage('Pi 服务启动失败，请检查 API Key 配置或重试。\n错误: ' + err.message);
     return;
   }
-
-  const piwebCwd = app.isPackaged ? process.resourcesPath : PROJECT_ROOT;
-  // polyfill worker_threads.markAsUncloneable（Node v24+ API，Electron Node v20 缺，undici 需要）
-  const polyfillPath = path.join(__dirname, 'piweb-polyfill.js');
-
-  // dev 用系统 Node v24（解决 Electron Node v20 undici 缺 markAsUncloneable）
-  // 打包后用 electron + ELECTRON_RUN_AS_NODE（后续内嵌 Node v24 彻底解决）
-  const nodeExe = app.isPackaged ? process.execPath : 'I:\\NODE\\node.exe';
-  const nodeEnv = app.isPackaged ? { ELECTRON_RUN_AS_NODE: '1' } : {};
-  piwebProcess = spawn(nodeExe, ['-r', polyfillPath, piwebEntry, '--hostname', '0.0.0.0', '--port', String(PORT), '--no-open'], {
-    cwd: piwebCwd,
-    env: {
-      ...process.env,
-      ...nodeEnv,
-      PI_WEB_NO_OPEN: '1',
-      NEXT_TELEMETRY_DISABLED: '1',
-    },
-    windowsHide: true,
-    shell: false,
-  });
-
-  piwebProcess.stdout.on('data', (d) => {
-    const s = d.toString().trim();
-    if (s) console.log('[pi-web]', s);
-  });
-  piwebProcess.stderr.on('data', (d) => {
-    const s = d.toString().trim();
-    if (s) console.error('[pi-web]', s);
-  });
-  piwebProcess.on('exit', (code, sig) => {
-    console.log(`[pi-web] 进程退出 code=${code} sig=${sig}`);
-    piwebProcess = null;
-  });
-
-  console.log('[pi-web] 已启动, pid=', piwebProcess.pid, 'entry=', piwebEntry);
-}
-
-function killPiWeb() {
-  if (!piwebProcess) return;
-  try {
-    if (process.platform === 'win32') {
-      execSync(`taskkill /pid ${piwebProcess.pid} /f /t`, { stdio: 'ignore' });
-    } else {
-      piwebProcess.kill('SIGTERM');
+  piwebReady = true;
+  for (const w of windows) {
+    if (!w.isDestroyed()) {
+      w.loadURL(PIWEB_URL).catch((error) => console.error('[main] 窗口加载失败:', error.message));
     }
-  } catch (e) {
-    console.error('[pi-web] kill 失败:', e.message);
   }
-  piwebProcess = null;
-}
-
-function waitForPiWeb(url, timeoutMs) {
-  const start = Date.now();
-  return new Promise((resolve, reject) => {
-    const check = () => {
-      const req = http.get(url, (res) => {
-        res.resume();
-        resolve();
-      });
-      req.on('error', () => {
-        if (Date.now() - start > timeoutMs) reject(new Error(`等待 ${timeoutMs}ms 超时`));
-        else setTimeout(check, 500);
-      });
-      req.setTimeout(2000, () => {
-        req.destroy();
-        if (Date.now() - start > timeoutMs) reject(new Error(`等待 ${timeoutMs}ms 超时`));
-        else setTimeout(check, 500);
-      });
-    };
-    check();
-  });
 }
 
 // ============ 窗口管理（多窗口） ============
@@ -186,7 +150,7 @@ function createWindow(opts = {}) {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       // 多账号会话隔离：不同 partition 隔离 cookie/localStorage = 不同 pi-web 账号
       ...(opts.partition ? { partition: opts.partition } : {}),
     },
@@ -243,6 +207,7 @@ function createWindow(opts = {}) {
 function showErrorPage(msg) {
   const win = BrowserWindow.getFocusedWindow() || mainWindow;
   if (!win || win.isDestroyed()) return;
+  const safeMsg = escapeHtml(msg);
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body{font-family:'Microsoft YaHei',sans-serif;background:#1e1e2e;color:#e5e5e5;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;padding:20px;text-align:center}
     .icon{font-size:48px;margin-bottom:16px}
@@ -250,7 +215,7 @@ function showErrorPage(msg) {
     p{white-space:pre-wrap;line-height:1.6;max-width:500px}
     button{margin-top:20px;padding:10px 24px;background:#89b4fa;color:#1e1e2e;border:none;border-radius:6px;font-size:14px;cursor:pointer}
     button:hover{background:#74c7ec}
-  </style></head><body><div class="icon">⚠️</div><h1>启动失败</h1><p>${msg}</p><button onclick="location.reload()">重试</button></body></html>`;
+  </style></head><body><div class="icon">⚠️</div><h1>启动失败</h1><p>${safeMsg}</p><button onclick="location.reload()">重试</button></body></html>`;
   win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
 }
 
@@ -280,6 +245,23 @@ async function exportPDF() {
     }
   } catch (e) {
     dialog.showErrorBox('导出 PDF 失败', e.message);
+  }
+}
+
+function readComponentVersion(label, ...packageParts) {
+  const nodeModulesDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules')
+    : path.join(PROJECT_ROOT, 'node_modules');
+  const packageFile = path.join(nodeModulesDir, ...packageParts, 'package.json');
+  try {
+    const { version } = JSON.parse(fs.readFileSync(packageFile, 'utf8'));
+    if (typeof version !== 'string' || version.length === 0) {
+      throw new Error('package version is missing');
+    }
+    return `${label} ${version}`;
+  } catch (error) {
+    console.error(`[about] ${label} 版本读取失败 (${packageFile}):`, error.message);
+    return null;
   }
 }
 
@@ -348,11 +330,19 @@ function setAppMenu() {
         { label: '检查更新...', click: () => checkForUpdatesManual() },
         { label: '关于 Pi Desktop', click: () => {
           const { dialog } = require('electron');
+          const detail = [
+            'pi-web 的 Electron 桌面封装',
+            `Desktop ${app.getVersion()}`,
+            readComponentVersion('pi-web', '@agegr', 'pi-web'),
+            readComponentVersion('Pi', '@earendil-works', 'pi-coding-agent'),
+            '',
+            'Pi: 开源终端 AI 编程 Agent',
+          ].filter((line) => line !== null).join('\n');
           dialog.showMessageBox(BrowserWindow.getFocusedWindow() || mainWindow, {
             type: 'info',
             title: '关于',
             message: 'Pi Desktop',
-            detail: 'pi-web 的 Electron 桌面封装\n版本 1.1.0（多窗口）\n\nPi: 开源终端 AI 编程 Agent',
+            detail,
           });
         }},
       ],
@@ -385,23 +375,46 @@ function updateState(updater) {
 }
 
 // ============ 外链拦截 ============
-ipcMain.on('open-external', (_e, url) => {
-  if (typeof url === 'string' && /^https?:\/\//.test(url)) {
-    shell.openExternal(url);
+ipcMain.on('open-external', (_event, value) => {
+  try {
+    if (typeof value !== 'string') throw new TypeError('URL must be a string');
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      console.error('[open-external] 已拒绝协议:', url.protocol);
+      return;
+    }
+    shell.openExternal(url.href).catch((error) => {
+      console.error('[open-external] 打开失败:', error.message);
+    });
+  } catch (error) {
+    console.error('[open-external] URL 解析失败:', error.message);
   }
 });
 
 // ============ 退出处理 ============
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   app.isQuiting = true;
+  if (quitCleanupComplete) return;
+  event.preventDefault();
+  if (quitCleanupStarted) return;
+  quitCleanupStarted = true;
   console.log('[main] before-quit, 杀 pi-web');
-  killPiWeb();
-  destroyTray();
+  try {
+    destroyTray();
+  } catch (error) {
+    console.error('[main] 托盘销毁失败:', error.message);
+  }
+  piwebService.stop()
+    .catch((error) => console.error('[main] pi-web 停止失败:', error.message))
+    .finally(() => {
+      quitCleanupComplete = true;
+      app.quit();
+    });
 });
 
 app.on('window-all-closed', () => {
   // 所有窗口关闭：托盘保活，不退出。除非 pi-web 没起来（异常）
-  if (!piwebProcess && !piwebReady) {
+  if (!piwebReady && piwebService.getDiagnostics().pid === null) {
     app.quit();
   }
 });

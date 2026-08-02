@@ -1,0 +1,46 @@
+flowchart TD
+  subgraph U[上游正式版本]
+    direction LR
+    PI["Pi Agent<br/>GitHub tag + npm"]
+    WEB["pi-web<br/>GitHub tag + npm"]
+  end
+
+  subgraph D[Pi Desktop 仓库]
+    direction TB
+    DETECT["每日或手动检测<br/>只跟稳定版"]
+    LOCK["生成候选依赖锁<br/>Pi + pi-web"]
+    BUILD["Electron 43 + Node 24<br/>干净构建"]
+    TEST["单测 + 产物清单<br/>启动/健康/UI/更新 smoke"]
+    GATE{"兼容门全部通过?"}
+    FAIL["停止发布<br/>保留上一个可用版"]
+    RELEASE["提交版本与锁文件<br/>发布 EXE/latest.yml/blockmap"]
+  end
+
+  UPDATER["electron-updater<br/>检查、下载、重启安装"]
+  APP["Pi Desktop<br/>Electron + pi-web + Pi Agent"]
+  DATA["~/.pi 用户数据<br/>会话/模型/Plugins/Skills"]
+  CAP["自动继承 SDK 能力<br/>Agent/Extensions/Packages/Prompts"]
+  TUI["TUI 专属交互<br/>仍属于终端模式"]
+
+  PI --> DETECT
+  WEB --> DETECT
+  DETECT --> LOCK --> BUILD --> TEST --> GATE
+  GATE -- "否" --> FAIL
+  GATE -- "是" --> RELEASE --> UPDATER --> APP
+  DATA --> APP
+  APP -. "pi-web/SDK 已暴露" .-> CAP
+  APP -. "不会自动变成 Web 控件" .-> TUI
+
+  classDef upstream fill:#E8F1FF,stroke:#2563EB,color:#111827;
+  classDef build fill:#F4F4F5,stroke:#52525B,color:#111827;
+  classDef gate fill:#FFF7D6,stroke:#CA8A04,color:#111827;
+  classDef success fill:#E8F7EE,stroke:#16803B,color:#111827;
+  classDef stop fill:#FDECEC,stroke:#C53030,color:#111827;
+  classDef data fill:#F3E8FF,stroke:#7E22CE,color:#111827;
+
+  class PI,WEB upstream;
+  class DETECT,LOCK,BUILD,TEST build;
+  class GATE gate;
+  class RELEASE,UPDATER,APP,CAP success;
+  class FAIL,TUI stop;
+  class DATA data;

@@ -1,167 +1,183 @@
-# auto-update.yml — 双轨检测：pi-web + pi-coding-agent 任一更新即自动构建
-#
-# 触发方式：
-#   1. 定时：每天 UTC 0 点（北京时间 8 点）
-#   2. 手动：GitHub Actions 页面 → Run workflow
-#
-# 流程：
-#   npm 检查 pi-web 和 pi-coding-agent 最新版本
-#   → 任一有新版本则升级依赖 → electron-builder 打包并发布 GitHub Release
-#   → 用户桌面端 electron-updater 自动检测到新 release → 提示更新
-
 name: Auto Update & Release
-
 on:
-  schedule:
-    - cron: '0 0 * * *'
+  schedule: [{ cron: '0 0 * * *' }]
   workflow_dispatch:
     inputs:
       force:
-        description: '强制重建（即使没有新版本）'
+        description: Force a verified rebuild
         type: boolean
         default: false
-
+permissions: { contents: write }
+concurrency: { group: pi-desktop-release, cancel-in-progress: false }
 jobs:
-  check-and-release:
+  release:
     runs-on: windows-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write
-
+    timeout-minutes: 45
     steps:
-      - name: 检出代码
+      - name: Checkout full history
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 设置 Node.js
+        with: { fetch-depth: 0 }
+      - name: Use Node.js 24
         uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: 安装依赖
-        run: npm install
-
-      - name: 检查更新（pi-web + pi-coding-agent）
-        id: check
-        shell: bash
+        with: { node-version: '24', cache: npm }
+      - name: Test current tree
+        shell: pwsh
         run: |
-          # 当前版本
-          PIWEB_CUR=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
-          PI_CUR=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
-
-          # npm 最新版本
-          PIWEB_LATEST=$(npm view @agegr/pi-web version)
-          PI_LATEST=$(npm view @earendil-works/pi-coding-agent version)
-
-          echo "piweb_current=${PIWEB_CUR}" >> $GITHUB_OUTPUT
-          echo "piweb_latest=${PIWEB_LATEST}" >> $GITHUB_OUTPUT
-          echo "pi_current=${PI_CUR}" >> $GITHUB_OUTPUT
-          echo "pi_latest=${PI_LATEST}" >> $GITHUB_OUTPUT
-
-          NEEDS_UPDATE="false"
-          REASON=""
-
-          if [ "$PIWEB_CUR" != "$PIWEB_LATEST" ]; then
-            NEEDS_UPDATE="true"
-            REASON="pi-web: ${PIWEB_CUR} → ${PIWEB_LATEST}"
-          fi
-
-          if [ "$PI_CUR" != "$PI_LATEST" ]; then
-            NEEDS_UPDATE="true"
-            REASON="${REASON}${REASON:+ / }pi: ${PI_CUR} → ${PI_LATEST}"
-          fi
-
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
-            NEEDS_UPDATE="true"
-            REASON="手动强制重建"
-          fi
-
-          echo "needs_update=${NEEDS_UPDATE}" >> $GITHUB_OUTPUT
-          echo "reason=${REASON}" >> $GITHUB_OUTPUT
-
-          echo "pi-web: ${PIWEB_CUR} → ${PIWEB_LATEST}"
-          echo "pi:     ${PI_CUR} → ${PI_LATEST}"
-          echo "更新:   ${NEEDS_UPDATE} (${REASON})"
-
-      - name: 升级依赖
-        if: steps.check.outputs.needs_update == 'true'
-        shell: bash
+          npm ci
+          npm test
+      - name: Read stable upstream versions
+        id: upstream
+        shell: pwsh
         run: |
-          # 升级 pi-web（会顺带更新 pi-coding-agent）
-          npm install @agegr/pi-web@latest
-          # 升级 pi-coding-agent（确保 override 生效，即使 pi-web 没更新）
-          npm install @earendil-works/pi-coding-agent@latest
-
-          PIWEB_NEW=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
-          PI_NEW=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
-
-          # 更新 package.json：依赖版本 + 自增 patch 号
-          node -e "
-            const pkg = require('./package.json');
-            pkg.dependencies['@agegr/pi-web'] = '^${PIWEB_NEW}';
-            pkg.dependencies['@earendil-works/pi-coding-agent'] = '^${PI_NEW}';
-            // 自增 patch 版本号（1.1.0 → 1.1.1）
-            const [major, minor, patch] = pkg.version.split('.').map(Number);
-            pkg.version = major + '.' + minor + '.' + (patch + 1);
-            console.log('pi-desktop version bumped to ' + pkg.version);
-            require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
-
-          DESKTOP_NEW=$(node -p "require('./package.json').version")
-          echo ">>> 已升级 pi-web → v${PIWEB_NEW}, pi → v${PI_NEW}, pi-desktop → v${DESKTOP_NEW}"
-          echo "desktop_ver=${DESKTOP_NEW}" >> $GITHUB_OUTPUT
-
-      - name: 提交版本变更 [skip ci]
-        if: steps.check.outputs.needs_update == 'true'
-        shell: bash
+          $piWeb = (npm view @agegr/pi-web version).Trim()
+          $pi = (npm view @earendil-works/pi-coding-agent version).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'npm view failed' }
+          "pi_web=$piWeb" >> $env:GITHUB_OUTPUT
+          "pi=$pi" >> $env:GITHUB_OUTPUT
+      - name: Prepare candidate and inspect matching Release
+        id: candidate
+        env: { GH_TOKEN: '${{ github.token }}', FORCE: '${{ inputs.force || ''false'' }}', PI_WEB: '${{ steps.upstream.outputs.pi_web }}', PI: '${{ steps.upstream.outputs.pi }}' }
+        shell: pwsh
         run: |
-          git config user.name "pi-desktop-bot"
-          git config user.email "bot@pi-desktop.local"
+          $args = @('scripts/prepare-update.js', '--pi-web', $env:PI_WEB, '--pi', $env:PI)
+          if ($env:FORCE -eq 'true') { $args += '--force' }
+          $json = & node @args
+          if ($LASTEXITCODE -ne 0) { throw 'candidate generation failed' }
+          $candidate = $json | ConvertFrom-Json
+          $tag = "v$($candidate.desktopVersion)"
+          try {
+            $release = gh release view $tag --repo ${{ github.repository }} --json assets,isDraft,url 2>$null
+          } catch { $release = $null }
+          $releaseLookupExit = $LASTEXITCODE
+          cmd /c exit 0
+          $complete = $false
+          $url = ''
+          if ($releaseLookupExit -eq 0) {
+            $release = $release | ConvertFrom-Json
+            $url = $release.url
+            $assetArgs = @('scripts/verify-release-assets.js', '--version', $candidate.desktopVersion)
+            foreach ($asset in $release.assets) { $assetArgs += @('--asset', $asset.name) }
+            & node @assetArgs | Out-Host
+            $complete = $LASTEXITCODE -eq 0 -and -not $release.isDraft
+          }
+          $mode = if ($candidate.action -eq 'update') { 'update' }
+            elseif ($candidate.action -eq 'rebuild') { 'rebuild' }
+            elseif ($complete) { 'none' }
+            else { 'repair' }
+          "json=$json" >> $env:GITHUB_OUTPUT
+          "version=$($candidate.desktopVersion)" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "mode=$mode" >> $env:GITHUB_OUTPUT
+          "skip=$($mode -eq 'none')".ToLowerInvariant() >> $env:GITHUB_OUTPUT
+          "release_url=$url" >> $env:GITHUB_OUTPUT
+      - name: Write new candidate
+        if: steps.candidate.outputs.mode == 'update'
+        env: { PI_WEB: '${{ steps.upstream.outputs.pi_web }}', PI: '${{ steps.upstream.outputs.pi }}' }
+        shell: pwsh
+        run: |
+          node scripts/prepare-update.js --pi-web $env:PI_WEB --pi $env:PI --write
+          npm install --package-lock-only --ignore-scripts
+      - name: Clean verified build
+        if: steps.candidate.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'npm test failed' }
+          npm run build -- --publish never
+          if ($LASTEXITCODE -ne 0) { throw 'package build failed' }
+          npm run verify:package
+          if ($LASTEXITCODE -ne 0) { throw 'package verification failed' }
+          npm run smoke:package
+          if ($LASTEXITCODE -ne 0) { throw 'package smoke failed' }
+      - name: Assert built versions
+        id: actual
+        if: steps.candidate.outputs.skip != 'true'
+        env: { CANDIDATE: '${{ steps.candidate.outputs.json }}' }
+        shell: pwsh
+        run: |
+          $candidate = $env:CANDIDATE | ConvertFrom-Json
+          $desktop = node -p "require('./package.json').version"
+          $piWeb = node -p "require('./node_modules/@agegr/pi-web/package.json').version"
+          $pi = node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version"
+          if ($desktop -ne $candidate.desktopVersion -or
+              $piWeb -ne $candidate.new.piWebVersion -or
+              $pi -ne $candidate.new.piVersion) { throw 'built versions do not match candidate' }
+          "desktop=$desktop" >> $env:GITHUB_OUTPUT
+          "pi_web=$piWeb" >> $env:GITHUB_OUTPUT
+          "pi=$pi" >> $env:GITHUB_OUTPUT
+      - name: Commit and push new candidate atomically
+        if: steps.candidate.outputs.mode == 'update'
+        env: { TAG: '${{ steps.candidate.outputs.tag }}' }
+        shell: pwsh
+        run: |
+          if ('${{ github.ref }}' -ne 'refs/heads/main') { throw 'new candidates may publish only from main' }
+          git config user.name pi-desktop-bot
+          git config user.email bot@pi-desktop.local
           git add package.json package-lock.json
-          PIWEB_NEW=$(node -p "require('./node_modules/@agegr/pi-web/package.json').version")
-          PI_NEW=$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")
-          DESKTOP_VER=$(node -p "require('./package.json').version")
-          git commit -m "chore: bump to pi-desktop ${DESKTOP_VER} (pi-web ${PIWEB_NEW}, pi ${PI_NEW}) [skip ci]"
-          git push
-
-      - name: 构建
-        if: steps.check.outputs.needs_update == 'true'
-        shell: bash
+          git commit -m "chore: release $env:TAG [skip ci]"
+          if ($LASTEXITCODE -ne 0) { throw 'release commit failed' }
+          git tag $env:TAG
+          if ($LASTEXITCODE -ne 0) { throw 'release tag creation failed' }
+          git push --atomic origin HEAD:main "refs/tags/$env:TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'atomic release push failed' }
+      - name: Create or reset draft Release
+        if: steps.candidate.outputs.skip != 'true'
+        env: { GH_TOKEN: '${{ github.token }}', TAG: '${{ steps.candidate.outputs.tag }}' }
+        shell: pwsh
         run: |
-          DESKTOP_VER=$(node -p "require('./package.json').version")
-          echo ">>> 构建 pi-desktop v${DESKTOP_VER}"
-          npm run build
-          echo ">>> 构建产物:"
-          ls -la dist/*.exe dist/*.yml dist/*.blockmap 2>/dev/null || echo "  (未找到)"
-
-      - name: 发布 Release
-        if: steps.check.outputs.needs_update == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.check.outputs.desktop_ver }}
-          name: "v${{ steps.check.outputs.desktop_ver }} (pi-web ${{ steps.check.outputs.piweb_latest }}, pi ${{ steps.check.outputs.pi_latest }})"
-          body: |
-            🤖 自动构建
-
-            | 组件 | 版本 |
-            |------|------|
-            | pi-desktop | v${{ steps.check.outputs.desktop_ver }} |
-            | pi-web | v${{ steps.check.outputs.piweb_latest }} |
-            | pi | v${{ steps.check.outputs.pi_latest }} |
-          files: |
-            dist/*.exe
-            dist/*.yml
-            dist/*.blockmap
-          draft: false
-          prerelease: false
-
-      - name: 汇总
-        shell: bash
+          try {
+            gh release view $env:TAG --repo ${{ github.repository }} 2>$null
+          } catch {
+            # Expected when this verified tag has no Release yet; the saved probe status selects create below.
+          }
+          $releaseLookupExit = $LASTEXITCODE
+          cmd /c exit 0
+          if ($releaseLookupExit -eq 0) { gh release edit $env:TAG --draft }
+          else { gh release create $env:TAG --draft --title $env:TAG --notes 'Verified automated build' }
+      - name: Upload candidate assets
+        if: steps.candidate.outputs.skip != 'true'
+        env: { GH_TOKEN: '${{ github.token }}', TAG: '${{ steps.candidate.outputs.tag }}' }
+        shell: pwsh
         run: |
-          echo "========================================="
-          echo "pi-web: ${{ steps.check.outputs.piweb_current }} → ${{ steps.check.outputs.piweb_latest }}"
-          echo "pi:     ${{ steps.check.outputs.pi_current }} → ${{ steps.check.outputs.pi_latest }}"
-          echo "结果:   ${{ steps.check.outputs.needs_update == 'true' && '已更新' || '已是最新' }}"
-          echo "原因:   ${{ steps.check.outputs.reason }}"
-          echo "========================================="
+          $release = gh api "repos/${{ github.repository }}/releases/tags/$env:TAG" | ConvertFrom-Json
+          foreach ($asset in $release.assets) {
+            gh release delete-asset $env:TAG $asset.name --yes
+          }
+          $assets = @(Get-ChildItem dist -File | Where-Object {
+            $_.Name -eq 'latest.yml' -or $_.Name -like '*.exe' -or $_.Name -like '*.blockmap'
+          } | ForEach-Object FullName)
+          if ($assets.Count -eq 0) { throw 'no release assets found' }
+          gh release upload $env:TAG @assets --clobber
+      - name: Verify draft assets
+        if: steps.candidate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.candidate.outputs.tag }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+        shell: pwsh
+        run: |
+          $release = gh api "repos/${{ github.repository }}/releases/tags/$env:TAG" | ConvertFrom-Json
+          $args = @('scripts/verify-release-assets.js', '--version', $env:VERSION)
+          foreach ($asset in $release.assets) { $args += @('--asset', $asset.name) }
+          & node @args
+          if ($LASTEXITCODE -ne 0) { throw 'draft assets are incomplete; Release remains draft' }
+      - name: Publish verified Release
+        if: steps.candidate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.candidate.outputs.tag }}
+        shell: pwsh
+        run: gh release edit $env:TAG --draft=false --latest
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: |
+          "### Pi Desktop release" >> $env:GITHUB_STEP_SUMMARY
+          "- Mode: ${{ steps.candidate.outputs.mode }}" >> $env:GITHUB_STEP_SUMMARY
+          "- Desktop: ${{ steps.actual.outputs.desktop || steps.candidate.outputs.version }}" >> $env:GITHUB_STEP_SUMMARY
+          "- pi-web: ${{ steps.actual.outputs.pi_web || steps.upstream.outputs.pi_web }}" >> $env:GITHUB_STEP_SUMMARY
+          "- Pi: ${{ steps.actual.outputs.pi || steps.upstream.outputs.pi }}" >> $env:GITHUB_STEP_SUMMARY
+          "- Tests/build/verify/smoke: ${{ steps.candidate.outputs.skip == 'true' && 'already verified' || 'executed' }}" >> $env:GITHUB_STEP_SUMMARY
+          "- Release: https://github.com/${{ github.repository }}/releases/tag/${{ steps.candidate.outputs.tag }}" >> $env:GITHUB_STEP_SUMMARY
