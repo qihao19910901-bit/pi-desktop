@@ -82,10 +82,15 @@ jobs:
         shell: pwsh
         run: |
           npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
           npm test
-          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'npm test failed' }
+          npm run build -- --publish never
+          if ($LASTEXITCODE -ne 0) { throw 'package build failed' }
           npm run verify:package
+          if ($LASTEXITCODE -ne 0) { throw 'package verification failed' }
           npm run smoke:package
+          if ($LASTEXITCODE -ne 0) { throw 'package smoke failed' }
       - name: Assert built versions
         id: actual
         if: steps.candidate.outputs.skip != 'true'

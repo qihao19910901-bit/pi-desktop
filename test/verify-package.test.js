@@ -54,6 +54,8 @@ async function fakeResources(t, options = {}) {
     if (options.omit !== 'pi-web.js') write(path.join(modules, '@agegr/pi-web/bin/pi-web.js'));
     if (options.omit !== 'pi-web-package') write(path.join(modules, '@agegr/pi-web/package.json'), options.piWebJson ?? JSON.stringify({ version: EXPECTED.piWeb }));
     if (options.omit !== 'pi-package') write(path.join(modules, '@earendil-works/pi-coding-agent/package.json'), options.piJson ?? JSON.stringify({ version: EXPECTED.pi }));
+    write(path.join(modules, '@agegr/pi-web/.next/static/chunks/app/page-test.js'),
+      options.compactBundle ?? 'chat.commandCompact chat.compactContext');
     if (external) {
       fs.symlinkSync(external, path.join(resources, 'app.asar.unpacked'), process.platform === 'win32' ? 'junction' : 'dir');
     }
@@ -96,6 +98,13 @@ test('rejects a duplicate resources/node_modules dependency tree', async (t) => 
 test('rejects an unpacked dependency tree linked outside resources', async (t) => {
   const resources = await fakeResources(t, { externalUnpacked: true });
   assert.throws(() => verifyResources(resources, EXPECTED), /app\.asar\.unpacked.*symbolic link|junction/i);
+});
+
+test('rejects a pi-web package without both Compact capability markers', async (t) => {
+  for (const compactBundle of ['', 'chat.commandCompact', 'chat.compactContext']) {
+    const resources = await fakeResources(t, { compactBundle });
+    assert.throws(() => verifyResources(resources, EXPECTED), /Compact capability.*missing/i);
+  }
 });
 
 test('rejects invalid metadata and each version mismatch', async (t) => {

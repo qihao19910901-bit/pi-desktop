@@ -18,6 +18,7 @@ const UNPACKED_PATHS = [
   'node_modules/@agegr/pi-web/package.json',
   'node_modules/@earendil-works/pi-coding-agent/package.json',
 ];
+const COMPACT_MARKERS = ['chat.commandCompact', 'chat.compactContext'];
 const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
 
 function readJsonFile(file, label) {
@@ -111,6 +112,20 @@ function checkVersion(label, actual, expected) {
   if (actual !== expected) throw new Error(`${label} version ${actual} does not match ${expected}`);
 }
 
+function requireCompactCapability(unpacked) {
+  const directory = path.join(unpacked, 'node_modules', '@agegr', 'pi-web', '.next', 'static', 'chunks', 'app');
+  let bundles;
+  try {
+    bundles = fs.readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /^page-.*\.js$/.test(entry.name))
+      .map((entry) => fs.readFileSync(path.join(directory, entry.name), 'utf8'));
+  } catch (error) {
+    throw new Error(`pi-web app bundle cannot be read: ${error.message}`, { cause: error });
+  }
+  const missing = COMPACT_MARKERS.filter((marker) => !bundles.some((source) => source.includes(marker)));
+  if (missing.length) throw new Error(`Compact capability markers are missing: ${missing.join(', ')}`);
+}
+
 function verifyResources(resourcesDir, expected = readExpectedVersions()) {
   const archive = path.join(resourcesDir, 'app.asar');
   const looseModules = path.join(resourcesDir, 'node_modules');
@@ -133,6 +148,7 @@ function verifyResources(resourcesDir, expected = readExpectedVersions()) {
   for (const required of UNPACKED_PATHS) {
     requireUnlinkedFile(resourcesDir, `app.asar.unpacked/${required}`);
   }
+  requireCompactCapability(unpacked);
 
   const desktop = readAsarPackage(archive).version;
   const piWeb = readJsonFile(path.join(unpacked, UNPACKED_PATHS[1]), 'pi-web package.json').version;

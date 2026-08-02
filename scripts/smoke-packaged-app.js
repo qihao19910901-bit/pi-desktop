@@ -3,7 +3,7 @@ const net = require('node:net'), os = require('node:os'), path = require('node:p
 const WEB_PORT = 30142, CDP_PORT = 9333;
 const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
 const UI_LABELS = [
-  ['Models', '模型'], ['Skills', '技能'], ['Plugins', '插件'], ['Compact', '压缩'],
+  ['Models', '模型'], ['Skills', '技能'], ['Plugins', '插件'],
 ];
 function withTimeout(promise, timeoutMs, label) {
   let timer;
