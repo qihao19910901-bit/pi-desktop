@@ -45,7 +45,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'candidate generation failed' }
           $candidate = $json | ConvertFrom-Json
           $tag = "v$($candidate.desktopVersion)"
-          $release = gh release view $tag --json assets,isDraft,url 2>$null
+          try {
+            $release = gh release view $tag --repo ${{ github.repository }} --json assets,isDraft,url 2>$null
+          } catch { $release = $null }
           $complete = $false
           $url = ''
           if ($LASTEXITCODE -eq 0) {
@@ -118,7 +120,11 @@ jobs:
         env: { GH_TOKEN: '${{ github.token }}', TAG: '${{ steps.candidate.outputs.tag }}' }
         shell: pwsh
         run: |
-          gh release view $env:TAG 2>$null
+          try {
+            gh release view $env:TAG --repo ${{ github.repository }} 2>$null
+          } catch {
+            # Expected when this verified tag has no Release yet; LASTEXITCODE selects create below.
+          }
           if ($LASTEXITCODE -eq 0) { gh release edit $env:TAG --draft }
           else { gh release create $env:TAG --draft --title $env:TAG --notes 'Verified automated build' }
       - name: Upload candidate assets
