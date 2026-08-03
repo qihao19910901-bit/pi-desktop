@@ -90,7 +90,7 @@ test('rejects a non-exact desktop version', () => {
   );
 });
 
-test('CLI prints one JSON object and exits 1 unless the asset set is exact', () => {
+test('CLI prints JSON, exits 1 for incomplete assets, and exits 2 for bad input', () => {
   const script = path.join(__dirname, '..', 'scripts', 'verify-release-assets.js');
   const exact = spawnSync(process.execPath, [
     script,
@@ -105,6 +105,9 @@ test('CLI prints one JSON object and exits 1 unless the asset set is exact', () 
     '--asset', 'Pi-Desktop-Setup-1.2.3.exe',
     '--asset', 'Pi-Desktop-Setup-1.2.3.exe.blockmap',
   ], { encoding: 'utf8' });
+  const invalid = spawnSync(process.execPath, [script, '--version', 'v1.2.3'], {
+    encoding: 'utf8',
+  });
 
   assert.equal(exact.status, 0, exact.stderr);
   assert.equal(exact.stdout.trim().split(/\r?\n/).length, 1);
@@ -116,4 +119,6 @@ test('CLI prints one JSON object and exits 1 unless the asset set is exact', () 
     missing: ['latest.yml'],
     unexpected: [],
   });
+  assert.equal(invalid.status, 2, invalid.stderr);
+  assert.match(invalid.stderr, /version must be an exact X\.Y\.Z version/);
 });

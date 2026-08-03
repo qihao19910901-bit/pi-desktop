@@ -58,7 +58,11 @@ jobs:
             $assetArgs = @('scripts/verify-release-assets.js', '--version', $candidate.desktopVersion)
             foreach ($asset in $release.assets) { $assetArgs += @('--asset', $asset.name) }
             & node @assetArgs | Out-Host
-            $complete = $LASTEXITCODE -eq 0 -and -not $release.isDraft
+            $verifierExit = $LASTEXITCODE
+            if ($verifierExit -ne 0 -and $verifierExit -ne 1) { throw 'asset verifier failed' }
+            $assetsComplete = $verifierExit -eq 0
+            cmd /c exit 0
+            $complete = $assetsComplete -and -not $release.isDraft
           }
           $mode = if ($candidate.action -eq 'update') { 'update' }
             elseif ($candidate.action -eq 'rebuild') { 'rebuild' }

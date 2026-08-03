@@ -37,6 +37,6 @@ if (require.main === module) {
     if (!result.ok) process.exitCode = 1;
   } catch (error) {
     console.error(`[verify-release-assets] ${error.message}`);
-    process.exitCode = 1;
+    process.exitCode = 2;
   }
 }
