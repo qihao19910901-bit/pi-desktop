@@ -42,6 +42,15 @@ test('draft asset steps query releases through gh release view', () => {
   }
 });
 
+test('candidate asset probe saves completeness and clears its expected native miss', () => {
+  const run = step('Prepare candidate and inspect matching Release')?.run;
+  assert.equal(typeof run, 'string');
+  assert.match(
+    run,
+    /& node @assetArgs \| Out-Host\s*\r?\n\s*\$verifierExit = \$LASTEXITCODE\s*\r?\n\s*if \(\$verifierExit -ne 0 -and \$verifierExit -ne 1\) \{ throw 'asset verifier failed' \}\s*\r?\n\s*\$assetsComplete = \$verifierExit -eq 0\s*\r?\n\s*cmd \/c exit 0\s*\r?\n\s*\$complete = \$assetsComplete -and -not \$release\.isDraft/,
+  );
+});
+
 test('mutating release commands remain outside tolerated lookup failures', () => {
   const run = step('Create or reset draft Release')?.run;
   assert.match(run, /gh release edit/);
@@ -49,9 +58,13 @@ test('mutating release commands remain outside tolerated lookup failures', () =>
   assert.doesNotMatch(run, /try\s*\{[\s\S]*gh release (?:edit|create)[\s\S]*\}\s*catch/);
 });
 
-test('both release probes preserve and reset the native exit status', () => {
-  assert.equal((source.match(/\$releaseLookupExit = \$LASTEXITCODE/g) || []).length, 2);
-  assert.equal((source.match(/cmd \/c exit 0/g) || []).length, 2);
+test('release probes preserve and reset expected native exit statuses', () => {
+  const candidate = step('Prepare candidate and inspect matching Release')?.run;
+  const draft = step('Create or reset draft Release')?.run;
+  assert.match(candidate, /\$releaseLookupExit = \$LASTEXITCODE/);
+  assert.match(draft, /\$releaseLookupExit = \$LASTEXITCODE/);
+  assert.equal((candidate.match(/cmd \/c exit 0/g) || []).length, 2);
+  assert.equal((draft.match(/cmd \/c exit 0/g) || []).length, 1);
 });
 
 test('clean verified build disables implicit publishing and fails fast', () => {
