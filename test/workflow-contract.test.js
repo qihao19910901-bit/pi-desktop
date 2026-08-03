@@ -30,6 +30,18 @@ test('release lookup steps target the current repo and tolerate an expected miss
   }
 });
 
+test('draft asset steps query releases through gh release view', () => {
+  for (const name of ['Upload candidate assets', 'Verify draft assets']) {
+    const run = step(name)?.run;
+    assert.equal(typeof run, 'string', `missing workflow step: ${name}`);
+    assert.match(
+      run,
+      /gh release view \$env:TAG --repo \$\{\{ github\.repository \}\} --json assets\s*\|\s*ConvertFrom-Json/,
+    );
+    assert.doesNotMatch(run, /gh api[^\r\n]*\/releases\/tags\//);
+  }
+});
+
 test('mutating release commands remain outside tolerated lookup failures', () => {
   const run = step('Create or reset draft Release')?.run;
   assert.match(run, /gh release edit/);

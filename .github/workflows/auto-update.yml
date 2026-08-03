@@ -141,7 +141,7 @@ jobs:
         env: { GH_TOKEN: '${{ github.token }}', TAG: '${{ steps.candidate.outputs.tag }}' }
         shell: pwsh
         run: |
-          $release = gh api "repos/${{ github.repository }}/releases/tags/$env:TAG" | ConvertFrom-Json
+          $release = gh release view $env:TAG --repo ${{ github.repository }} --json assets | ConvertFrom-Json
           foreach ($asset in $release.assets) {
             gh release delete-asset $env:TAG $asset.name --yes
           }
@@ -158,7 +158,7 @@ jobs:
           VERSION: ${{ steps.candidate.outputs.version }}
         shell: pwsh
         run: |
-          $release = gh api "repos/${{ github.repository }}/releases/tags/$env:TAG" | ConvertFrom-Json
+          $release = gh release view $env:TAG --repo ${{ github.repository }} --json assets | ConvertFrom-Json
           $args = @('scripts/verify-release-assets.js', '--version', $env:VERSION)
           foreach ($asset in $release.assets) { $args += @('--asset', $asset.name) }
           & node @args

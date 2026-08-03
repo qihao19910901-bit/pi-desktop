@@ -1,8 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const YAML = require('yaml');
 const pkg = require('../package.json');
 
 const exact = (value) => /^\d+\.\d+\.\d+$/.test(value);
+const builder = YAML.parse(fs.readFileSync(
+  path.join(__dirname, '..', 'electron-builder.yml'),
+  'utf8',
+));
 
 test('runtime and build dependencies are exact', () => {
   assert.equal(pkg.overrides?.['@agegr/pi-web']?.['@earendil-works/pi-coding-agent'],
@@ -15,6 +22,10 @@ test('runtime and build dependencies are exact', () => {
   for (const version of Object.values({ ...pkg.dependencies, ...pkg.devDependencies })) {
     assert.equal(exact(version), true, `non-exact version: ${version}`);
   }
+});
+
+test('installer artifact name matches updater metadata', () => {
+  assert.equal(builder.artifactName, 'Pi-Desktop-Setup-${version}.${ext}');
 });
 
 test('the repository exposes deterministic quality commands', () => {

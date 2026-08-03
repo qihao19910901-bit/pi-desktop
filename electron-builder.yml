@@ -1,5 +1,6 @@
 appId: com.pi.desktop
 productName: Pi Desktop
+artifactName: Pi-Desktop-Setup-${version}.${ext}
 copyright: Copyright © 2026
 
 directories:
