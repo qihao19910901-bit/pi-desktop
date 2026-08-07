@@ -40,7 +40,9 @@ async function fakeResources(t, options = {}) {
     for (const file of SHELL_FILES) {
       if (file !== 'package.json' && file !== options.omit) {
         if (file === options.directoryShell) fs.mkdirSync(path.join(source, file), { recursive: true });
-        else write(path.join(source, file));
+        else write(path.join(source, file), file === 'electron/preload.js'
+          ? options.compactNoticePreload ?? 'Nothing to compact (session too small) 当前会话内容较少，暂时无需压缩'
+          : '');
       }
     }
     if (options.omit !== 'package.json') {
@@ -104,6 +106,13 @@ test('rejects a pi-web package without both Compact capability markers', async (
   for (const compactBundle of ['', 'chat.commandCompact', 'chat.compactContext']) {
     const resources = await fakeResources(t, { compactBundle });
     assert.throws(() => verifyResources(resources, EXPECTED), /Compact capability.*missing/i);
+  }
+});
+
+test('rejects a desktop preload without both Compact notice markers', async (t) => {
+  for (const compactNoticePreload of ['', 'Nothing to compact (session too small)', '当前会话内容较少，暂时无需压缩']) {
+    const resources = await fakeResources(t, { compactNoticePreload });
+    assert.throws(() => verifyResources(resources, EXPECTED), /Compact notice.*missing/i);
   }
 });
 

@@ -19,6 +19,10 @@ const UNPACKED_PATHS = [
   'node_modules/@earendil-works/pi-coding-agent/package.json',
 ];
 const COMPACT_MARKERS = ['chat.commandCompact', 'chat.compactContext'];
+const COMPACT_NOTICE_MARKERS = [
+  'Nothing to compact (session too small)',
+  '当前会话内容较少，暂时无需压缩',
+];
 const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
 
 function readJsonFile(file, label) {
@@ -126,6 +130,17 @@ function requireCompactCapability(unpacked) {
   if (missing.length) throw new Error(`Compact capability markers are missing: ${missing.join(', ')}`);
 }
 
+function requireCompactNoticeCapability(archive) {
+  let source;
+  try {
+    source = asar.extractFile(archive, 'electron/preload.js').toString('utf8');
+  } catch (error) {
+    throw new Error(`desktop preload cannot be read: ${error.message}`, { cause: error });
+  }
+  const missing = COMPACT_NOTICE_MARKERS.filter((marker) => !source.includes(marker));
+  if (missing.length) throw new Error(`Compact notice markers are missing: ${missing.join(', ')}`);
+}
+
 function verifyResources(resourcesDir, expected = readExpectedVersions()) {
   const archive = path.join(resourcesDir, 'app.asar');
   const looseModules = path.join(resourcesDir, 'node_modules');
@@ -145,6 +160,7 @@ function verifyResources(resourcesDir, expected = readExpectedVersions()) {
       throw new Error(`app.asar path ${required} is not a regular file`);
     }
   }
+  requireCompactNoticeCapability(archive);
   for (const required of UNPACKED_PATHS) {
     requireUnlinkedFile(resourcesDir, `app.asar.unpacked/${required}`);
   }
