@@ -22,3 +22,4 @@ Thumbs.db
 
 # Electron 运行时二进制（解包输出）
 Pi Desktop/
+.gstack/
