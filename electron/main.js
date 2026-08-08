@@ -16,6 +16,7 @@ const { escapeHtml } = require('./safe-html');
 const { createTray, destroyTray } = require('./tray');
 const { initUpdater, checkForUpdatesManual } = require('./updater');
 const { createPluginsWindow, destroyPluginsWindow } = require('./plugins-window');
+const { createTemplatesWindow, destroyTemplatesWindow } = require('./templates-window');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const PORT = parsePort(process.env.PI_WEB_PORT);
@@ -329,6 +330,7 @@ function setAppMenu() {
       label: '工具',
       submenu: [
         { label: '插件管理…', click: () => createPluginsWindow({ port: PORT, projectRoot: PROJECT_ROOT }) },
+        { label: '提示词模板…', click: () => createTemplatesWindow({ projectRoot: PROJECT_ROOT }) },
       ],
     },
     {
@@ -409,6 +411,7 @@ app.on('before-quit', (event) => {
   try {
     destroyTray();
     destroyPluginsWindow();
+    destroyTemplatesWindow();
   } catch (error) {
     console.error('[main] 托盘销毁失败:', error.message);
   }

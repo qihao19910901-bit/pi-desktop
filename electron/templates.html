@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>提示词模板 - Pi Desktop</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
+    background: #1e1e2e; color: #cdd6f4; font-size: 14px;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  header {
+    padding: 12px 16px; border-bottom: 1px solid #313244;
+    display: flex; align-items: center; gap: 10px; background: #181825;
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin-right: auto; }
+  .btn {
+    background: #313244; color: #cdd6f4; border: 1px solid #45475a;
+    border-radius: 6px; padding: 5px 12px; font-size: 13px; cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:hover { background: #45475a; }
+  .btn.primary { background: #89b4fa; color: #11111b; border-color: #89b4fa; }
+  .btn.primary:hover { background: #a6c8ff; }
+  .btn.danger { color: #f38ba8; border-color: #f38ba8; background: transparent; }
+  .btn.danger:hover { background: rgba(243,139,168,.12); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .layout { display: flex; flex: 1; min-height: 0; }
+  .sidebar {
+    width: 260px; border-right: 1px solid #313244; display: flex;
+    flex-direction: column; min-height: 0;
+  }
+  .sidebar input[type=text] {
+    margin: 10px; background: #11111b; color: #cdd6f4;
+    border: 1px solid #45475a; border-radius: 6px; padding: 6px 10px;
+    font-size: 13px; font-family: inherit;
+  }
+  .sidebar input[type=text]::placeholder { color: #585b70; }
+  .group-label {
+    padding: 6px 14px 4px; font-size: 11px; color: #6c7086;
+    text-transform: none; letter-spacing: .5px;
+  }
+  .template-list { flex: 1; overflow-y: auto; padding-bottom: 10px; }
+  .template-item {
+    padding: 7px 14px; cursor: pointer; border-left: 2px solid transparent;
+  }
+  .template-item:hover { background: #242436; }
+  .template-item.active { background: #313244; border-left-color: #89b4fa; }
+  .template-item .name { font-size: 13px; color: #89dceb; }
+  .template-item .desc {
+    font-size: 12px; color: #6c7086; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .template-item .meta { font-size: 11px; color: #585b70; margin-top: 2px; }
+
+  .editor { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .editor-toolbar {
+    padding: 8px 14px; border-bottom: 1px solid #313244;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .editor-toolbar .path { font-size: 12px; color: #6c7086; flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .editor textarea {
+    flex: 1; background: #11111b; color: #cdd6f4; border: none;
+    padding: 14px; font-family: Consolas, 'Microsoft YaHei', monospace;
+    font-size: 13px; line-height: 1.6; resize: none; outline: none;
+  }
+  .editor .hint {
+    padding: 6px 14px; font-size: 12px; color: #585b70;
+    border-top: 1px solid #313244;
+  }
+  .empty { text-align: center; color: #6c7086; padding: 60px 20px; line-height: 1.9; }
+  .empty code { background: #11111b; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  .banner {
+    margin: 10px 16px 0; padding: 8px 12px; border-radius: 6px; font-size: 13px;
+    display: none;
+    background: rgba(243,139,168,.12); border: 1px solid #f38ba8; color: #f38ba8;
+  }
+  .banner.show { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>提示词模板</h1>
+  <span id="cwdLabel" style="font-size:12px;color:#6c7086;">…</span>
+  <button class="btn" id="newBtn">新建模板</button>
+  <button class="btn" id="refreshBtn">刷新</button>
+</header>
+
+<div class="banner" id="banner"></div>
+
+<div class="layout">
+  <div class="sidebar">
+    <input type="text" id="searchInput" placeholder="搜索模板…">
+    <div class="template-list" id="templateList"></div>
+  </div>
+  <div class="editor">
+    <div class="editor-toolbar">
+      <span class="path" id="pathLabel">未选择模板</span>
+      <button class="btn primary" id="saveBtn" disabled>保存</button>
+      <button class="btn" id="copyBtn" disabled>复制路径</button>
+      <button class="btn danger" id="deleteBtn" disabled>删除</button>
+    </div>
+    <textarea id="contentInput" placeholder="模板内容（Markdown，支持 ---description--- 前置元数据）" disabled></textarea>
+    <div class="hint">用法：在对话输入 <code>/模板名</code> 展开。全局模板对所有项目生效；项目模板存放在当前项目的 .pi/prompts 目录。</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const listEl = document.getElementById('templateList');
+  const searchInput = document.getElementById('searchInput');
+  const contentInput = document.getElementById('contentInput');
+  const pathLabel = document.getElementById('pathLabel');
+  const saveBtn = document.getElementById('saveBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  const deleteBtn = document.getElementById('deleteBtn');
+  const newBtn = document.getElementById('newBtn');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const bannerEl = document.getElementById('banner');
+  const cwdLabel = document.getElementById('cwdLabel');
+
+  let cwd = null;
+  let templates = [];
+  let current = null;      // 当前打开的模板 { path, name }
+  let dirty = false;
+
+  function showBanner(message) {
+    bannerEl.textContent = message;
+    bannerEl.className = 'banner' + (message ? ' show' : '');
+  }
+
+  async function load() {
+    try {
+      templates = await window.piTemplates.list(cwd);
+      renderList();
+    } catch (error) {
+      showBanner('加载失败：' + error.message);
+    }
+  }
+
+  function renderList() {
+    const keyword = searchInput.value.trim().toLowerCase();
+    const filtered = templates.filter((t) =>
+      !keyword || t.name.toLowerCase().includes(keyword)
+        || (t.description || '').toLowerCase().includes(keyword));
+    const groups = { global: [], project: [] };
+    for (const t of filtered) groups[t.scope]?.push(t);
+
+    listEl.innerHTML = '';
+    for (const scope of ['global', 'project']) {
+      const items = groups[scope] || [];
+      if (items.length === 0) continue;
+      const label = document.createElement('div');
+      label.className = 'group-label';
+      label.textContent = scope === 'global' ? '全局（~/.pi/agent/prompts）' : '项目（.pi/prompts）';
+      listEl.appendChild(label);
+      for (const t of items) {
+        const el = document.createElement('div');
+        el.className = 'template-item' + (current && current.path === t.path ? ' active' : '');
+        const desc = t.description || '（无描述）';
+        el.innerHTML = '<div class="name">/' + escapeHtml(t.name) + '</div>'
+          + '<div class="desc">' + escapeHtml(desc) + '</div>'
+          + '<div class="meta">' + t.size + ' 字节' + (t.mtime ? ' · ' + escapeHtml(t.mtime.slice(0, 16).replace('T', ' ')) : '') + '</div>';
+        el.addEventListener('click', () => openTemplate(t));
+        listEl.appendChild(el);
+      }
+    }
+    if (filtered.length === 0) {
+      listEl.innerHTML = '<div class="empty">没有匹配的模板。<br>点击右上角"新建模板"创建第一个。</div>';
+    }
+  }
+
+  async function openTemplate(t) {
+    if (dirty) {
+      const ok = window.confirm('当前模板有未保存的修改，放弃吗？');
+      if (!ok) return;
+    }
+    try {
+      const content = await window.piTemplates.read(cwd, t.path);
+      current = { path: t.path, name: t.name };
+      pathLabel.textContent = t.path;
+      pathLabel.title = t.path;
+      contentInput.value = content;
+      contentInput.disabled = false;
+      dirty = false;
+      saveBtn.disabled = false;
+      copyBtn.disabled = false;
+      deleteBtn.disabled = false;
+      renderList();
+    } catch (error) {
+      showBanner('读取失败：' + error.message);
+    }
+  }
+
+  async function save() {
+    if (!current) return;
+    try {
+      await window.piTemplates.write(cwd, current.path, contentInput.value);
+      dirty = false;
+      showBanner('已保存');
+      setTimeout(() => showBanner(''), 1500);
+      await load();
+    } catch (error) {
+      showBanner('保存失败：' + error.message);
+    }
+  }
+
+  async function removeTemplate() {
+    if (!current) return;
+    const ok = window.confirm('确定删除模板 /' + current.name + ' 吗？');
+    if (!ok) return;
+    try {
+      await window.piTemplates.remove(cwd, current.path);
+      current = null;
+      contentInput.value = '';
+      contentInput.disabled = true;
+      pathLabel.textContent = '未选择模板';
+      saveBtn.disabled = true;
+      copyBtn.disabled = true;
+      deleteBtn.disabled = true;
+      await load();
+    } catch (error) {
+      showBanner('删除失败：' + error.message);
+    }
+  }
+
+  function newTemplate() {
+    if (dirty) {
+      const ok = window.confirm('当前模板有未保存的修改，放弃吗？');
+      if (!ok) return;
+    }
+    const name = window.prompt('模板名称（不含 .md）：', 'my-template');
+    if (!name) return;
+    const isProject = window.confirm('创建为项目模板？（确定=项目，取消=全局）');
+    if (isProject && !cwd) { showBanner('未找到项目目录，请先填写工作目录'); return; }
+    createNew(name.trim(), isProject);
+  }
+
+  async function createNew(name, isProject) {
+    try {
+      const filePath = await window.piTemplates.newPath(cwd, name, isProject);
+      await window.piTemplates.write(cwd, filePath, '---\ndescription: 模板说明\n---\n\n在这里输入模板内容');
+      await load();
+      const t = templates.find((x) => x.path === filePath);
+      if (t) await openTemplate(t);
+    } catch (error) {
+      showBanner('新建失败：' + error.message);
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[ch]);
+  }
+
+  contentInput.addEventListener('input', () => { dirty = true; });
+  saveBtn.addEventListener('click', save);
+  deleteBtn.addEventListener('click', removeTemplate);
+  newBtn.addEventListener('click', newTemplate);
+  refreshBtn.addEventListener('click', () => { showBanner(''); load(); });
+  searchInput.addEventListener('input', renderList);
+  copyBtn.addEventListener('click', async () => {
+    if (!current) return;
+    try {
+      await navigator.clipboard.writeText(current.path);
+      showBanner('路径已复制');
+      setTimeout(() => showBanner(''), 1500);
+    } catch {
+      showBanner('复制失败');
+    }
+  });
+
+  async function init() {
+    try {
+      cwd = await window.piTemplates.getDefaultCwd();
+      cwdLabel.textContent = cwd ? '工作目录：' + cwd : '未找到工作目录';
+    } catch {
+      cwdLabel.textContent = '未找到工作目录';
+    }
+    load();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

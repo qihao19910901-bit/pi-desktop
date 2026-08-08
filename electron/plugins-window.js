@@ -1,25 +1,9 @@
-// plugins-window.js - 插件管理窗口
-// 调 pi-web 现有 /api/plugins（能力完整，缺 UI），面板纯本地页面
 const path = require('node:path');
-const os = require('node:os');
-const fs = require('node:fs');
 const { BrowserWindow, ipcMain } = require('electron');
 const { requestJson } = require('./piweb-fetch');
+const { resolveDefaultCwd } = require('./default-cwd');
 
 const VALID_ACTIONS = ['install', 'remove', 'update', 'disable', 'enable'];
-
-// 默认工作目录：pi 信任列表（trust.json）里的第一个目录
-function resolveDefaultCwd(homedir = os.homedir()) {
-  try {
-    const trustFile = path.join(homedir, '.pi', 'agent', 'trust.json');
-    const data = JSON.parse(fs.readFileSync(trustFile, 'utf8'));
-    const trusted = Object.entries(data).filter(([, v]) => v === true).map(([k]) => k);
-    if (trusted.length > 0) return trusted[0];
-  } catch {
-    // trust.json 不存在或损坏：回退主目录
-  }
-  return homedir;
-}
 
 function assertCwd(cwd) {
   if (typeof cwd !== 'string' || cwd.length === 0) throw new Error('cwd 不能为空');
@@ -56,7 +40,6 @@ function createPluginHandlers({ port, request = requestJson } = {}) {
     },
   };
 }
-
 let pluginsWindow = null;
 
 function createPluginsWindow({ port, projectRoot } = {}) {
