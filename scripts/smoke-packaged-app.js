@@ -5,6 +5,19 @@ const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
 const UI_LABELS = [
   ['Models', '模型'], ['Skills', '技能'], ['Plugins', '插件'],
 ];
+// 子进程环境：剥离 ELECTRON_RUN_AS_NODE（否则 electron.exe 以 Node 模式运行，
+// --remote-debugging-port 报 bad option，smoke 必然失败）
+function createChildEnv(userData) {
+  const env = {
+    ...process.env,
+    PI_DESKTOP_SMOKE: '1',
+    PI_DESKTOP_USER_DATA: userData,
+    PI_WEB_PORT: String(WEB_PORT),
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
+  return env;
+}
+
 function withTimeout(promise, timeoutMs, label) {
   let timer;
   return Promise.race([
@@ -257,7 +270,7 @@ async function runSmoke() {
       return remaining;
     };
     child = spawn(exe, [`--remote-debugging-port=${CDP_PORT}`], {
-      env: { ...process.env, PI_DESKTOP_SMOKE: '1', PI_DESKTOP_USER_DATA: userData, PI_WEB_PORT: String(WEB_PORT) },
+      env: createChildEnv(userData),
       windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'],
     });
     child.stdout.on('data', stdout.append); child.stdout.on('error', stderr.append);
