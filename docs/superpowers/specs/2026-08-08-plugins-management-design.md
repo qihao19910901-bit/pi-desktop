@@ -145,3 +145,25 @@ electron/plugins.js          — 页面逻辑（调 IPC）
 - 不动 pi-web 源码（上游），只加桌面壳层
 - 不并入其他功能（Extensions/Packages 面板后续单独立项）
 - 不发布，等下次 CI 上游更新时带出
+
+## 7. 实现状态（2026-08-08）
+
+**已实现（P0 全部，main 92b195e/6258e36/7e5f25c）**：
+
+| 组件 | 说明 |
+|---|---|
+| `electron/plugins-window.js` | 窗口 + IPC；handler 逻辑抽成纯函数（可测） |
+| `electron/piweb-fetch.js` | 回环 HTTP 封装（拒非回环、超时、透传 pi-web 错误信息） |
+| `electron/plugins-preload.js` | sandbox 兼容 contextBridge 桥 |
+| `electron/plugins.html` | 全中文面板：4 态状态徽章/资源计数/诊断/信任横幅/安装表单/cwd 切换/二次确认 |
+| main.js | 工具菜单入口 + 退出清理 |
+
+**实现中修正的设计偏差**：
+
+1. `/api/default-cwd` 是 POST 且每次创建日期目录（`~/pi-cwd-YYYYMMDD`）——不是项目 cwd。改为读 `~/.pi/agent/trust.json` 第一个信任目录；面板支持手动切换 cwd。
+2. 实测 cwd 权限：仅信任目录可通过（`C:/Windows`、不存在目录、homedir 均 403 "Access denied"）。
+3. 实测发现**本机已有 5 个已配置插件**（settings.json packages：pi-pi、pi-web-access、pi-hermes-memory、@vigolium/piolium、pi-tian-repo-model），此前"未配置"只是 UI 未展示。
+
+**验证**：136 测试全过（+12：HTTP 封装 5、handler 逻辑 6、trust 解析 1）；真实 API 探测 200；页面脚本语法检查通过。
+
+**待真实验收**：发布后手动打开 工具 → 插件管理…，验证列表/安装/移除/启停在真实窗口的交互。
