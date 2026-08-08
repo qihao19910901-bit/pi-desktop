@@ -103,4 +103,4 @@ function destroyPluginsWindow() {
   pluginsWindow = null;
 }
 
-module.exports = { createPluginsWindow, destroyPluginsWindow, createPluginHandlers, VALID_ACTIONS };
+module.exports = { createPluginsWindow, destroyPluginsWindow, createPluginHandlers, VALID_ACTIONS, resolveDefaultCwd };
