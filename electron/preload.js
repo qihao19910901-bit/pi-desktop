@@ -1,10 +1,8 @@
 // preload.js - 中文化注入 + Compact 中文提示 + 外链拦截
 // 运行在渲染进程，隔离环境，DOM 可访问
+// 注意：sandbox: true 下只能 require('electron')，禁止 fs/path 等 Node 模块
 // 来源合并：v1.1.7 精简版（外链拦截）+ feat/compact-zh-notice（Compact 提示）+ 归档完整版（中文字典）
 const { ipcRenderer } = require('electron');
-const fs = require('fs');
-const path = require('path');
-const DICT_FILE = path.join(__dirname, '.devdict.json');
 
 // ============ Compact 提示常量 ============
 const COMPACT_NOOP_MESSAGE = 'Nothing to compact (session too small)';
@@ -425,24 +423,9 @@ document.addEventListener('click', (event) => {
   ipcRenderer.send('open-external', url.href);
 }, true);
 
-// ============ 热重载字典（开发用） ============
-// 修改 .devdict.json 后 3 秒自动加载并重新翻译，不用重启 dev
-// 打包后 .devdict.json 不在 asar，fs.existsSync 失败，自动跳过
-setInterval(() => {
-  try {
-    if (!fs.existsSync(DICT_FILE)) return;
-    const extra = JSON.parse(fs.readFileSync(DICT_FILE, 'utf8'));
-    let changed = 0;
-    for (const [k, v] of Object.entries(extra)) {
-      if (ZH_MAP[k] !== v) { ZH_MAP[k] = v; changed++; }
-    }
-    if (changed) {
-      console.log('[preload] 热加载字典:', changed, '词变化');
-      walkAndTranslate(document.body);
-      setTimeout(() => walkAndTranslate(document.body), 500);
-    }
-  } catch (e) {}
-}, 3000);
+// ============ 热重载字典 ============
+// 已移除：sandbox: true 下 preload 无法 require('fs')，字典更新直接改 ZH_MAP 并走测试
+// （v1.1.6 时代的热重载依赖 sandbox: false，v1.1.7 重构后不可用）
 
 module.exports = {
   isCompactNoopMessage,
