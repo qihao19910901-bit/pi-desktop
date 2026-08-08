@@ -226,7 +226,14 @@ const ZH_MAP_PLACEHOLDER = {
 };
 
 // ============ DOM 文本替换 ============
+// 尊重 .notranslate（Next.js 用于用户数据/文件名区域，如文件浏览器）
+function isInsideNoTranslate(node) {
+  const el = node.nodeType === 3 ? node.parentElement : node;
+  return !!el && typeof el.closest === 'function' && el.closest('.notranslate') !== null;
+}
+
 function translateNode(node) {
+  if (isInsideNoTranslate(node)) return;
   if (node.nodeType === 3 /* Node.TEXT_NODE */) {
     const raw = node.nodeValue;
     if (typeof raw !== 'string') return;

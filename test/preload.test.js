@@ -303,3 +303,46 @@ test('full pipeline: DOMContentLoaded translates, compacts and observes once', (
   listeners.get('DOMContentLoaded')();
   assert.equal(observers.length, 1);
 });
+
+// ============ notranslate 尊重 ============
+
+test('skips translation inside .notranslate regions (user data, file trees)', () => {
+  const { api } = loadPreload();
+  // 文本节点：父元素在 notranslate 容器内
+  const container = {
+    nodeType: 1,
+    closest: (sel) => sel === '.notranslate' ? {} : null,
+  };
+  const textNode = { nodeType: 3, nodeValue: 'Settings', parentElement: container };
+  api.translateNode(textNode);
+  assert.equal(textNode.nodeValue, 'Settings');
+
+  // 元素节点：自身在 notranslate 内
+  const el = {
+    nodeType: 1,
+    placeholder: 'Type a message...',
+    title: 'Settings',
+    closest: (sel) => sel === '.notranslate' ? {} : null,
+  };
+  api.translateNode(el);
+  assert.equal(el.placeholder, 'Type a message...');
+  assert.equal(el.title, 'Settings');
+});
+
+test('translates normally when closest returns null', () => {
+  const { api } = loadPreload();
+  const container = {
+    nodeType: 1,
+    closest: () => null,
+  };
+  const textNode = { nodeType: 3, nodeValue: 'Send', parentElement: container };
+  api.translateNode(textNode);
+  assert.equal(textNode.nodeValue, '发送');
+});
+
+test('tolerates elements without closest (defensive)', () => {
+  const { api } = loadPreload();
+  const el = { nodeType: 1, placeholder: 'Search...' };
+  api.translateNode(el);
+  assert.equal(el.placeholder, '搜索...');
+});
