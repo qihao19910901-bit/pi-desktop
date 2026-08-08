@@ -59,13 +59,21 @@ test('exposes exactly the documented actions', () => {
   assert.deepEqual(VALID_ACTIONS, ['install', 'remove', 'update', 'disable', 'enable']);
 });
 
-test('defaultCwd returns the cwd field or null', async () => {
-  const handlers = createPluginHandlers({
-    port: 30141,
-    request: async () => ({ cwd: 'D:/work' }),
-  });
-  assert.equal(await handlers.defaultCwd(), 'D:/work');
-
-  const empty = createPluginHandlers({ port: 30141, request: async () => ({}) });
-  assert.equal(await empty.defaultCwd(), null);
+test('defaultCwd resolves the first trusted directory from trust.json', async () => {
+  const os = require('node:os');
+  const path = require('node:path');
+  const fs = require('node:fs');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-trust-'));
+  const agentDir = path.join(tmp, '.pi', 'agent');
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, 'trust.json'), JSON.stringify({
+    'C:/not-trusted': false,
+    'F:/软件/我的秘籍': true,
+    'F:/其他项目': true,
+  }));
+  const { resolveDefaultCwd } = require('../electron/plugins-window');
+  assert.equal(resolveDefaultCwd(tmp), 'F:/软件/我的秘籍');
+  // 回退：trust.json 缺失
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-trust-empty-'));
+  assert.equal(resolveDefaultCwd(empty), empty);
 });
