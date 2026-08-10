@@ -97,9 +97,12 @@ function readExpectedVersions() {
 }
 
 function readAsarPackage(archive) {
+  // 防御：asar 偶发读到 header 填充区（NUL 字节）时重试一次
+  const extract = () => asar.extractFile(archive, 'package.json').toString('utf8');
   let source;
   try {
-    source = asar.extractFile(archive, 'package.json').toString('utf8');
+    source = extract();
+    if (/^\0/.test(source)) source = extract();
   } catch (error) {
     throw new Error(`app.asar package.json cannot be read: ${error.message}`, { cause: error });
   }
