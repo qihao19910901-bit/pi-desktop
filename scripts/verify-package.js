@@ -17,6 +17,9 @@ const SHELL_PATHS = [
   '/electron/templates-preload.js',
   '/electron/templates-window.js',
   '/electron/templates.html',
+  '/electron/settings-preload.js',
+  '/electron/settings-window.js',
+  '/electron/settings.html',
   '/package.json',
 ];
 const UNPACKED_PATHS = [

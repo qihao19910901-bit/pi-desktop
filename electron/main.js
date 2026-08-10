@@ -17,6 +17,7 @@ const { createTray, destroyTray } = require('./tray');
 const { initUpdater, checkForUpdatesManual } = require('./updater');
 const { createPluginsWindow, destroyPluginsWindow } = require('./plugins-window');
 const { createTemplatesWindow, destroyTemplatesWindow } = require('./templates-window');
+const { createSettingsWindow, destroySettingsWindow, createSettingsHandlers, TOGGLE_SHORTCUT } = require('./settings-window');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const PORT = parsePort(process.env.PI_WEB_PORT);
@@ -112,6 +113,7 @@ async function bootstrap() {
   setAppMenu();
   createWindow();
   if (!SMOKE_MODE) initUpdater();
+  initSettings();
   createTray({
     onNewWindow: () => createWindow(),
     onNewSession: () => {
@@ -331,6 +333,8 @@ function setAppMenu() {
       submenu: [
         { label: '插件管理…', click: () => createPluginsWindow({ port: PORT, projectRoot: PROJECT_ROOT }) },
         { label: '提示词模板…', click: () => createTemplatesWindow({ projectRoot: PROJECT_ROOT }) },
+        { type: 'separator' },
+        { label: '设置…', click: () => openSettingsWindow() },
       ],
     },
     {
@@ -383,6 +387,68 @@ function updateState(updater) {
   }
 }
 
+// ============ 设置（P2-1：开机自启/全局快捷键/更新/诊断） ============
+let globalShortcutEnabled = false;
+let settingsHandlers = null;
+
+function initSettings() {
+  const showMain = () => {
+    const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && x !== settingsHandlers?.__window);
+    if (w) { if (w.isMinimized()) w.restore(); if (!w.isVisible()) w.show(); w.focus(); }
+  };
+  settingsHandlers = createSettingsHandlers({
+    app,
+    shell,
+    getLoginSettings: () => app.getLoginItemSettings(),
+    setLoginSettings: (opts) => app.setLoginItemSettings(opts),
+    isShortcutRegistered: () => globalShortcutEnabled,
+    registerShortcut: (accelerator, callback) => {
+      const ok = globalShortcut.register(accelerator, callback);
+      if (ok) globalShortcutEnabled = true;
+      return ok;
+    },
+    unregisterShortcut: (accelerator) => {
+      globalShortcut.unregister(accelerator);
+      globalShortcutEnabled = false;
+    },
+    showActiveWindow: showMain,
+    getDiagnostics: () => piwebService.getDiagnostics(),
+    checkUpdate: () => checkForUpdatesManual(),
+    readVersions: () => ({
+      'pi-web': readComponentVersion('pi-web', '@agegr', 'pi-web'),
+      'Pi': readComponentVersion('Pi', '@earendil-works', 'pi-coding-agent'),
+    }),
+    port: PORT,
+    updaterLogPath: path.join(app.getPath('userData'), 'updater.log'),
+  });
+
+  // 恢复快捷键状态（window-state.json）
+  const saved = loadState();
+  if (saved.globalShortcut === true && !SMOKE_MODE) {
+    try {
+      settingsHandlers.setShortcut(true).catch((error) => {
+        console.error('[settings] 快捷键恢复失败:', error.message);
+      });
+    } catch (error) {
+      console.error('[settings] 快捷键恢复失败:', error.message);
+    }
+  }
+}
+
+function openSettingsWindow() {
+  if (!settingsHandlers) initSettings();
+  const win = createSettingsWindow({ projectRoot: PROJECT_ROOT, app, shell, handlers: settingsHandlers });
+  // 记住快捷键开关状态
+  win.once('closed', () => {
+    if (settingsHandlers) {
+      settingsHandlers.getState().then((s) => {
+        updateState((cur) => ({ ...cur, globalShortcut: s.shortcutEnabled }));
+      }).catch(() => {});
+    }
+  });
+  return win;
+}
+
 // ============ 外链拦截 ============
 ipcMain.on('open-external', (_event, value) => {
   try {
@@ -412,6 +478,10 @@ app.on('before-quit', (event) => {
     destroyTray();
     destroyPluginsWindow();
     destroyTemplatesWindow();
+    destroySettingsWindow();
+    if (globalShortcutEnabled) {
+      try { globalShortcut.unregister(TOGGLE_SHORTCUT); } catch (error) { /* 忽略 */ }
+    }
   } catch (error) {
     console.error('[main] 托盘销毁失败:', error.message);
   }

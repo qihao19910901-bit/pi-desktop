@@ -12,6 +12,7 @@ const SHELL_FILES = [
   'electron/piweb-runtime.js', 'electron/piweb-service.js', 'electron/safe-html.js',
   'electron/plugins-preload.js', 'electron/plugins-window.js', 'electron/plugins.html',
   'electron/templates-preload.js', 'electron/templates-window.js', 'electron/templates.html',
+  'electron/settings-preload.js', 'electron/settings-window.js', 'electron/settings.html',
   'package.json',
 ];
 

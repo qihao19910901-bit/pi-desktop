@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>设置 - Pi Desktop</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
+    background: #1e1e2e; color: #cdd6f4; font-size: 14px;
+    padding: 16px 20px; height: 100vh; overflow-y: auto;
+  }
+  h1 { font-size: 16px; margin-bottom: 14px; }
+  section {
+    background: #181825; border: 1px solid #313244; border-radius: 8px;
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  section h2 { font-size: 13px; color: #89b4fa; margin-bottom: 10px; }
+  .row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .row:last-child { margin-bottom: 0; }
+  .row label { flex: 1; min-width: 200px; cursor: pointer; }
+  .row .desc { font-size: 12px; color: #6c7086; display: block; margin-top: 2px; }
+  .btn {
+    background: #313244; color: #cdd6f4; border: 1px solid #45475a;
+    border-radius: 6px; padding: 5px 12px; font-size: 13px; cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:hover { background: #45475a; }
+  .btn.primary { background: #89b4fa; color: #11111b; border-color: #89b4fa; }
+  .btn.primary:hover { background: #a6c8ff; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: #89b4fa; cursor: pointer; }
+  .mono { font-family: Consolas, monospace; font-size: 12px; color: #a6adc8; }
+  .banner {
+    margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; font-size: 13px;
+    display: none;
+    background: rgba(243,139,168,.12); border: 1px solid #f38ba8; color: #f38ba8;
+  }
+  .banner.show { display: block; }
+  .diag-line { font-size: 12px; color: #a6adc8; padding: 2px 0; }
+  .diag-line b { color: #cdd6f4; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>设置</h1>
+<div class="banner" id="banner"></div>
+
+<section>
+  <h2>通用</h2>
+  <div class="row">
+    <label>
+      <input type="checkbox" id="autostartChk"> 开机自动启动 Pi Desktop
+      <span class="desc">登录 Windows 后自动运行（可关托盘保活）</span>
+    </label>
+  </div>
+</section>
+
+<section>
+  <h2>全局快捷键</h2>
+  <div class="row">
+    <label>
+      <input type="checkbox" id="shortcutChk"> 启用全局快捷键
+      <span class="desc" id="shortcutLabel">Ctrl+Shift+P：显示/隐藏 Pi Desktop 窗口</span>
+    </label>
+  </div>
+</section>
+
+<section>
+  <h2>更新</h2>
+  <div class="row">
+    <span class="mono" id="versionLabel">版本信息…</span>
+    <button class="btn primary" id="checkUpdateBtn">检查更新</button>
+  </div>
+</section>
+
+<section>
+  <h2>诊断</h2>
+  <div id="diagBox"></div>
+  <div class="row" style="margin-top:10px;">
+    <button class="btn" id="openLogBtn">打开更新日志目录</button>
+    <button class="btn" id="copyDiagBtn">复制诊断信息</button>
+  </div>
+</section>
+
+<script>
+(function () {
+  const bannerEl = document.getElementById('banner');
+  const autostartChk = document.getElementById('autostartChk');
+  const shortcutChk = document.getElementById('shortcutChk');
+  const shortcutLabel = document.getElementById('shortcutLabel');
+  const versionLabel = document.getElementById('versionLabel');
+  const diagBox = document.getElementById('diagBox');
+
+  function showBanner(message) {
+    bannerEl.textContent = message;
+    bannerEl.className = 'banner' + (message ? ' show' : '');
+    if (message) setTimeout(() => showBanner(''), 4000);
+  }
+
+  async function load() {
+    try {
+      const s = await window.piSettings.getState();
+      autostartChk.checked = s.autostartEnabled;
+      shortcutChk.checked = s.shortcutEnabled;
+      shortcutLabel.textContent = s.shortcutLabel + '：显示/隐藏 Pi Desktop 窗口';
+      const versions = s.versions || {};
+      versionLabel.textContent = '桌面 ' + s.desktopVersion
+        + (versions['pi-web'] ? ' · ' + versions['pi-web'] : '')
+        + (versions.Pi ? ' · ' + versions.Pi : '');
+      const stderr = (s.piweb.stderr || []).slice(-3).map(l => escapeHtml(l)).join('<br>');
+      diagBox.innerHTML = ''
+        + '<div class="diag-line"><b>端口：</b>' + s.port + '</div>'
+        + '<div class="diag-line"><b>pi-web 进程：</b>' + (s.piweb.pid ? '运行中 (pid ' + s.piweb.pid + ')' : '未运行') + '</div>'
+        + '<div class="diag-line"><b>重启次数：</b>' + s.piweb.restartCount + '</div>'
+        + (s.updaterLogPath ? '<div class="diag-line"><b>更新日志：</b>' + escapeHtml(s.updaterLogPath) + '</div>' : '')
+        + (stderr ? '<div class="diag-line"><b>pi-web stderr：</b><br>' + stderr + '</div>' : '');
+    } catch (e) {
+      showBanner('加载失败：' + e.message);
+    }
+  }
+
+  autostartChk.addEventListener('change', async () => {
+    try {
+      await window.piSettings.setAutostart(autostartChk.checked);
+      showBanner(autostartChk.checked ? '已开启开机自启' : '已关闭开机自启');
+    } catch (e) {
+      showBanner('设置失败：' + e.message);
+      autostartChk.checked = !autostartChk.checked;
+    }
+  });
+
+  shortcutChk.addEventListener('change', async () => {
+    try {
+      const r = await window.piSettings.setShortcut(shortcutChk.checked);
+      shortcutChk.checked = r.enabled;
+      showBanner(r.enabled ? '全局快捷键已启用' : '全局快捷键已关闭');
+    } catch (e) {
+      showBanner('快捷键设置失败：' + e.message);
+      shortcutChk.checked = !shortcutChk.checked;
+    }
+  });
+
+  document.getElementById('checkUpdateBtn').addEventListener('click', () => {
+    window.piSettings.checkUpdate().catch((e) => showBanner('检查更新失败：' + e.message));
+  });
+  document.getElementById('openLogBtn').addEventListener('click', async () => {
+    try {
+      const result = await window.piSettings.openLogDir();
+      if (result && result !== '') showBanner('打开失败：' + result);
+    } catch (e) {
+      showBanner('打开失败：' + e.message);
+    }
+  });
+  document.getElementById('copyDiagBtn').addEventListener('click', async () => {
+    try {
+      const r = await window.piSettings.copyDiagnostics();
+      showBanner('诊断信息已复制（' + r.length + ' 字符）');
+    } catch (e) {
+      showBanner('复制失败：' + e.message);
+    }
+  });
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[ch]);
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>
