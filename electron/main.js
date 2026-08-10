@@ -18,6 +18,7 @@ const { initUpdater, checkForUpdatesManual } = require('./updater');
 const { createPluginsWindow, destroyPluginsWindow } = require('./plugins-window');
 const { createTemplatesWindow, destroyTemplatesWindow } = require('./templates-window');
 const { createSettingsWindow, destroySettingsWindow, createSettingsHandlers, TOGGLE_SHORTCUT } = require('./settings-window');
+const { accountLabel, buildWindowTitle, ACCOUNT_BADGE_HTML } = require('./window-meta');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const PORT = parsePort(process.env.PI_WEB_PORT);
@@ -139,6 +140,7 @@ async function bootstrap() {
 // ============ 窗口管理（多窗口） ============
 function createWindow(opts = {}) {
   const bounds = loadState().bounds || {};
+  const account = accountLabel(opts.partition);
   const win = new BrowserWindow({
     width: bounds.width || 1280,
     height: bounds.height || 820,
@@ -146,7 +148,7 @@ function createWindow(opts = {}) {
     y: typeof bounds.y === 'number' ? bounds.y + (windows.size * 30) % 200 : undefined,
     minWidth: 900,
     minHeight: 600,
-    title: 'Pi Desktop',
+    title: buildWindowTitle(account, 'Pi Desktop'),
     backgroundColor: '#1e1e2e',
     icon: path.join(PROJECT_ROOT, 'assets', 'icon.png'),
     show: false,
@@ -159,6 +161,31 @@ function createWindow(opts = {}) {
       ...(opts.partition ? { partition: opts.partition } : {}),
     },
   });
+
+  // 标题：阻止页面覆盖，改为「账号 - 页面标题」组合
+  win.on('page-title-updated', (event, pageTitle) => {
+    event.preventDefault();
+    win.setTitle(buildWindowTitle(account, pageTitle));
+  });
+
+  // 账号窗口：加载完成后注入状态角标
+  if (account) {
+    win.webContents.on('did-finish-load', () => {
+      try {
+        win.webContents.executeJavaScript(
+          `(function(){
+            if (document.getElementById('pi-account-badge')) return;
+            const div = document.createElement('div');
+            div.id = 'pi-account-badge';
+            div.innerHTML = ${JSON.stringify(ACCOUNT_BADGE_HTML(account))};
+            document.body.appendChild(div);
+          })()`,
+        ).catch(() => {});
+      } catch (error) {
+        console.error('[window] 角标注入失败:', error.message);
+      }
+    });
+  }
 
   windows.add(win);
   if (!mainWindow) mainWindow = win;
