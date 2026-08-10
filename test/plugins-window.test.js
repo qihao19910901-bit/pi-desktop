@@ -77,3 +77,21 @@ test('defaultCwd resolves the first trusted directory from trust.json', async ()
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-trust-empty-'));
   assert.equal(resolveDefaultCwd(empty), empty);
 });
+
+test('normalizeSource strips pi install / npm install prefixes', async () => {
+  const req = fakeRequest();
+  const handlers = createPluginHandlers({ port: 30141, request: req.impl });
+  await handlers.action({
+    cwd: 'C:/repo',
+    action: 'install',
+    source: 'pi install npm:@tintinweb/pi-subagents',
+    scope: 'global',
+  });
+  assert.equal(req.calls[0].options.body.source, 'npm:@tintinweb/pi-subagents');
+  // npm install 前缀 + 选项
+  await handlers.action({ cwd: 'C:/repo', action: 'install', source: 'npm install --save-dev git:https://github.com/x/y' });
+  assert.equal(req.calls[1].options.body.source, 'git:https://github.com/x/y');
+  // 无前缀原样
+  await handlers.action({ cwd: 'C:/repo', action: 'install', source: 'npm:demo' });
+  assert.equal(req.calls[2].options.body.source, 'npm:demo');
+});

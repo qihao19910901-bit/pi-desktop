@@ -5,6 +5,14 @@ const { resolveDefaultCwd } = require('./default-cwd');
 
 const VALID_ACTIONS = ['install', 'remove', 'update', 'disable', 'enable'];
 
+// 容错：剥离常见命令前缀（pi install / npm install），防止用户把完整命令当来源填
+function normalizeSource(source) {
+  if (typeof source !== 'string') return source;
+  const s = source.trim();
+  const stripped = s.replace(/^(?:pi|npm)\s+install(?:\s+--[\w-]+(?:\s*=\s*\S+)?)*\s+/i, '');
+  return stripped === s ? s : stripped.trim();
+}
+
 function assertCwd(cwd) {
   if (typeof cwd !== 'string' || cwd.length === 0) throw new Error('cwd 不能为空');
   return cwd;
@@ -31,7 +39,7 @@ function createPluginHandlers({ port, request = requestJson } = {}) {
         throw new Error('作用域只能是 project 或 global');
       }
       const body = { cwd, action };
-      if (source) body.source = source;
+      if (source) body.source = normalizeSource(source);
       if (scope) body.scope = scope;
       return request(`${base}/api/plugins`, { method: 'POST', body });
     },
