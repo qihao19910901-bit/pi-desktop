@@ -1,7 +1,11 @@
 // updater.js - 自动更新模块（electron-updater）
-// v2: 日志写文件 + 检查失败自动重试 + 下载失败重试（2026-08-10 实战教训）
+// v3: 检查走 electron-updater；下载走自研镜像链路（ghproxy → 直连，断点续传）
+// 2026-08-10 实战教训：GitHub 直连下载 196MB 安装包在国内网络极不稳定，
+// electron-updater 原生下载失败率高且无断点续传。
 const fs = require('node:fs');
 const path = require('node:path');
+const https = require('node:https');
+const http = require('node:http');
 
 function createFileLogger(userDataDir) {
   const logFile = path.join(userDataDir, 'updater.log');
@@ -22,15 +26,92 @@ function createFileLogger(userDataDir) {
   };
 }
 
+// ============ 镜像下载（纯逻辑，可测） ============
+
+// 生成候选下载 URL：ghproxy 镜像优先，GitHub 直连兜底
+function buildDownloadUrls(info) {
+  const githubUrl = typeof info.files === 'object' && Array.isArray(info.files)
+    && info.files[0] && info.files[0].url
+    ? info.files[0].url
+    : null;
+  if (!githubUrl) return [];
+  const mirrors = [
+    'https://ghproxy.net/',
+    'https://gh-proxy.com/',
+  ];
+  return [...mirrors.map((m) => m + githubUrl), githubUrl];
+}
+
+// 带断点续传的单 URL 下载：返回 true=完成 / false=失败（可重试）
+function downloadFile(url, destPath, { timeoutMs = 100000, onProgress } = {}) {
+  return new Promise((resolve) => {
+    const existing = fs.existsSync(destPath) ? fs.statSync(destPath).size : 0;
+    const mod = url.startsWith('https:') ? https : http;
+    const request = mod.get(url, {
+      headers: existing > 0 ? { Range: `bytes=${existing}-` } : {},
+      timeout: timeoutMs,
+    }, (response) => {
+      const status = response.statusCode || 0;
+      if (status === 416) {
+        // 已完整下载
+        response.resume();
+        resolve(true);
+        return;
+      }
+      if (status !== 200 && status !== 206) {
+        response.resume();
+        resolve(false);
+        return;
+      }
+      const stream = fs.createWriteStream(destPath, { flags: 'a' });
+      let received = existing;
+      response.on('data', (chunk) => {
+        received += chunk.length;
+        if (onProgress) onProgress(received);
+      });
+      stream.on('finish', () => resolve(true));
+      stream.on('error', () => resolve(false));
+      response.pipe(stream);
+    });
+    request.on('timeout', () => { request.destroy(); resolve(false); });
+    request.on('error', () => resolve(false));
+  });
+}
+
+// 多 URL + 多轮断点续传下载；返回 true=成功 false=失败
+async function downloadWithRetry(urls, destPath, {
+  maxRounds = 20, timeoutMs = 100000, onProgress,
+  expectedSize = 0,
+} = {}) {
+  fs.mkdirSync(path.dirname(destPath), { recursive: true });
+  for (let round = 0; round < maxRounds; round += 1) {
+    for (const url of urls) {
+      const ok = await downloadFile(url, destPath, { timeoutMs, onProgress });
+      if (ok && (!expectedSize || fs.statSync(destPath).size >= expectedSize)) {
+        return true;
+      }
+      // 未完成：继续下一个 URL / 下一轮（断点续传从已有字节继续）
+    }
+  }
+  return false;
+}
+
+// ============ 更新控制器 ============
+
 function createUpdaterController({
   isPackaged,
   autoUpdater,
   dialog,
+  shell,
   logger = console,
   schedule = setTimeout,
+  desktopPath = '',
+  download = downloadWithRetry,
+  buildUrls = buildDownloadUrls,
 }) {
   let initialized = false;
   let checkAttempts = 0;
+  let mirrorDownloading = false;
   const MAX_CHECK_ATTEMPTS = 3;
   const RETRY_DELAY_MS = 60000;
 
@@ -40,48 +121,27 @@ function createUpdaterController({
 
     if (!autoUpdater) return;
 
-    // 打包后才检查更新（开发模式跳过）
     if (!isPackaged) {
       logger.log('[updater] 开发模式，跳过自动更新');
       return;
     }
 
-    autoUpdater.autoDownload = true; // 发现新版本自动下载
-    autoUpdater.autoInstallOnAppQuit = true; // 退出时自动安装
+    // 下载改由镜像链路处理（autoDownload 关闭，避免 electron-updater 直连下载）
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.allowDowngrade = false;
 
     autoUpdater.on('update-available', (info) => {
       logger.log('[updater] 发现新版本:', info.version);
+      if (mirrorDownloading) return;
+      mirrorDownloading = true;
+      startMirrorDownload(info);
     });
     autoUpdater.on('update-not-available', () => {
       logger.log('[updater] 已是最新版本');
     });
-    autoUpdater.on('download-progress', (progress) => {
-      logger.log(
-        `[updater] 下载进度: ${Math.round(progress.percent)}% (${progress.transferred}/${progress.total})`,
-      );
-    });
-    autoUpdater.on('update-downloaded', (info) => {
-      logger.log('[updater] 新版本已下载:', info.version);
-      Promise.resolve()
-        .then(() =>
-          dialog.showMessageBox({
-            type: 'info',
-            title: '更新就绪',
-            message: `新版本 ${info.version} 已下载完成`,
-            detail: '重启应用后即可使用新版本。',
-            buttons: ['立即重启', '稍后'],
-            defaultId: 0,
-          }),
-        )
-        .then((result) => {
-          if (result.response === 0) autoUpdater.quitAndInstall();
-        })
-        .catch((e) => logger.error('[updater] 错误:', e.message));
-    });
     autoUpdater.on('error', (err) => {
       logger.error('[updater] 错误:', err.message);
-      // 检查失败自动重试（最多 3 次，间隔 60 秒）
       if (checkAttempts < MAX_CHECK_ATTEMPTS) {
         checkAttempts += 1;
         logger.log(`[updater] ${RETRY_DELAY_MS / 1000} 秒后重试检查（第 ${checkAttempts}/${MAX_CHECK_ATTEMPTS} 次）`);
@@ -93,14 +153,51 @@ function createUpdaterController({
       }
     });
 
-    // 启动后延迟 8 秒检查更新（避免抢启动资源）
     schedule(() => {
       Promise.resolve()
         .then(() => autoUpdater.checkForUpdatesAndNotify())
         .catch((e) => logger.warn('[updater] 检查失败:', e.message));
     }, 8000);
 
-    logger.log('[updater] 自动更新已启用，日志: ' + (logger.getLogFile ? logger.getLogFile() : '(控制台)'));
+    logger.log('[updater] 自动更新已启用（镜像下载模式），日志: ' + (logger.getLogFile ? logger.getLogFile() : '(控制台)'));
+  }
+
+  async function startMirrorDownload(info) {
+    const urls = buildUrls(info);
+    if (urls.length === 0) {
+      logger.error('[updater] 无法构造下载地址（无 files 元数据）');
+      mirrorDownloading = false;
+      return;
+    }
+    const dest = path.join(desktopPath || require('node:os').homedir(), `Pi-Desktop-Setup-${info.version}.exe`);
+    logger.log(`[updater] 镜像下载开始: v${info.version} → ${dest}`);
+    logger.log(`[updater] 候选源: ${urls.join(' | ')}`);
+    const ok = await download(urls, dest, { onProgress: (bytes) => logger.log(`[updater] 下载进度: ${Math.round(bytes / 1048576)}MB`), expectedSize: info.files?.[0]?.size || 0 });
+    mirrorDownloading = false;
+    if (!ok) {
+      logger.error('[updater] 镜像下载失败（已重试多轮），请手动下载: https://github.com/qihao19910901-bit/pi-desktop/releases');
+      Promise.resolve().then(() => dialog.showMessageBox({
+        type: 'warning',
+        title: '更新下载失败',
+        message: `新版本 ${info.version} 下载失败`,
+        detail: '网络不稳定。可稍后在"设置 → 检查更新"重试，或到 GitHub Releases 手动下载。',
+        buttons: ['确定'],
+      })).catch(() => {});
+      return;
+    }
+    logger.log('[updater] 镜像下载完成');
+    Promise.resolve().then(() => dialog.showMessageBox({
+      type: 'info',
+      title: '更新包已就绪',
+      message: `新版本 ${info.version} 已下载到桌面`,
+      detail: `双击 Pi-Desktop-Setup-${info.version}.exe 安装，重启后生效。`,
+      buttons: ['打开所在文件夹', '稍后'],
+      defaultId: 0,
+    }).then((result) => {
+      if (result.response === 0 && shell && shell.showItemInFolder) {
+        shell.showItemInFolder(dest);
+      }
+    })).catch((e) => logger.error('[updater] 提示失败:', e.message));
   }
 
   // 手动检查更新（菜单触发）
@@ -142,7 +239,7 @@ let defaultController;
 function getDefaultController() {
   if (defaultController) return defaultController;
 
-  const { app, dialog } = require('electron');
+  const { app, dialog, shell } = require('electron');
   let autoUpdater = null;
   try {
     autoUpdater = require('electron-updater').autoUpdater;
@@ -151,17 +248,21 @@ function getDefaultController() {
   }
 
   let logger = console;
+  let desktopPath = '';
   try {
     logger = createFileLogger(app.getPath('userData'));
+    desktopPath = app.getPath('desktop');
   } catch (e) {
-    console.warn('[updater] 文件日志不可用，回退控制台:', e.message);
+    console.warn('[updater] 文件日志/桌面路径不可用:', e.message);
   }
 
   defaultController = createUpdaterController({
     isPackaged: app.isPackaged,
     autoUpdater,
     dialog,
+    shell,
     logger,
+    desktopPath,
   });
   return defaultController;
 }
@@ -174,4 +275,12 @@ function checkForUpdatesManual() {
   getDefaultController().checkManual();
 }
 
-module.exports = { createUpdaterController, createFileLogger, initUpdater, checkForUpdatesManual };
+module.exports = {
+  createUpdaterController,
+  createFileLogger,
+  buildDownloadUrls,
+  downloadFile,
+  downloadWithRetry,
+  initUpdater,
+  checkForUpdatesManual,
+};
