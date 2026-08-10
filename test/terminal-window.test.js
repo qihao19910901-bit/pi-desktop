@@ -100,10 +100,11 @@ test('spawnTab creates a pty and write routes through the line guard', () => {
   assert.equal(manager.listTabs().length, 1);
   assert.equal(fake.ptyInstances[0].opts.cwd, 'F:/x');
 
-  // 普通行直接写入
+  // 普通行直接写入（首个写入是 UTF-8 初始化）
   const r1 = manager.write(id, 'echo hi\r');
   assert.equal(r1.ok, true);
-  assert.deepEqual(fake.ptyInstances[0].writes, ['echo hi\r']);
+  assert.equal(fake.ptyInstances[0].writes[0], 'export LANG=C.UTF-8 LC_ALL=C.UTF-8\n');
+  assert.deepEqual(fake.ptyInstances[0].writes[1], 'echo hi\r');
 
   // 危险行被拦截
   const r2 = manager.write(id, 'rm -rf /\r');
@@ -114,13 +115,15 @@ test('spawnTab creates a pty and write routes through the line guard', () => {
   // 确认后补写
   const confirmed = manager.confirmDanger(id);
   assert.equal(confirmed.ok, true);
-  assert.deepEqual(fake.ptyInstances[0].writes[1], 'rm -rf /\r');
+  assert.deepEqual(fake.ptyInstances[0].writes[2], 'rm -rf /\r');
 
   // 取消则不写
-  const id2 = manager.spawnTab({ shell: 'bash', cwd: 'F:/y', onData: () => {} });
+  const id2 = manager.spawnTab({ shell: 'C:\\Windows\\System32\\cmd.exe', cwd: 'F:/y', onData: () => {} });
   manager.write(id2, 'format c:\r');
   manager.cancelDanger(id2);
-  assert.equal(fake.ptyInstances[1].writes.length, 0);
+  // cmd 走 chcp 初始化
+  assert.equal(fake.ptyInstances[1].writes[0], 'chcp 65001 >nul\r');
+  assert.equal(fake.ptyInstances[1].writes.length, 1);
 });
 
 test('closeTab kills pty and process tree; closeAll cleans up', async () => {

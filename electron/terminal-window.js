@@ -71,6 +71,12 @@ function createTerminalManager({ ptyFactory, killTree } = {}) {
       tabs.set(id, tab);
       pty.onData((data) => onData && onData(id, data));
       pty.onExit(({ exitCode }) => onExit && onExit(id, exitCode));
+      // 强制 UTF-8：Git Bash 在中文 Windows 下默认 GBK 输出，会导致终端乱码
+      if (!/cmd\.exe$/i.test(shell)) {
+        try { pty.write('export LANG=C.UTF-8 LC_ALL=C.UTF-8\n'); } catch (e) { /* 忽略 */ }
+      } else {
+        try { pty.write('chcp 65001 >nul\r'); } catch (e) { /* 忽略 */ }
+      }
       return id;
     },
     write(id, data) {
