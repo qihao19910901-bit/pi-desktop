@@ -159,6 +159,13 @@ function createTemplatesWindow({ projectRoot } = {}) {
   win.on('closed', () => { templatesWindow = null; });
 
   const handlers = createTemplateHandlers();
+  // 幂等注册：窗口关闭后再次打开时先移除旧 handler，避免重复注册异常
+  for (const channel of [
+    'templates:list', 'templates:new-path', 'templates:read',
+    'templates:write', 'templates:delete', 'templates:default-cwd',
+  ]) {
+    ipcMain.removeHandler(channel);
+  }
   ipcMain.handle('templates:list', (_event, cwd) => handlers.list(cwd || null));
   ipcMain.handle('templates:new-path', (_event, cwd, name, isProject) => handlers.newPath(cwd || null, name, isProject));
   ipcMain.handle('templates:read', (_event, cwd, filePath) => handlers.read(cwd || null, filePath));

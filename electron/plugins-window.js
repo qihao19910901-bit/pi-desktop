@@ -70,6 +70,10 @@ function createPluginsWindow({ port, projectRoot } = {}) {
   win.on('closed', () => { pluginsWindow = null; });
 
   const handlers = createPluginHandlers({ port });
+  // 幂等注册：窗口关闭后再次打开时先移除旧 handler，避免重复注册异常
+  for (const channel of ['plugins:list', 'plugins:action', 'plugins:default-cwd']) {
+    ipcMain.removeHandler(channel);
+  }
   ipcMain.handle('plugins:list', (_event, cwd) => handlers.list(cwd));
   ipcMain.handle('plugins:action', (_event, payload) => handlers.action(payload));
   ipcMain.handle('plugins:default-cwd', () => handlers.defaultCwd());

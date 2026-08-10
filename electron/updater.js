@@ -1,5 +1,26 @@
 // updater.js - 自动更新模块（electron-updater）
-// 配合 electron-builder.yml 的 publish: github provider 使用
+// v2: 日志写文件 + 检查失败自动重试 + 下载失败重试（2026-08-10 实战教训）
+const fs = require('node:fs');
+const path = require('node:path');
+
+function createFileLogger(userDataDir) {
+  const logFile = path.join(userDataDir, 'updater.log');
+  const write = (level, args) => {
+    try {
+      const line = `[${new Date().toISOString()}] [${level}] ${args.map(String).join(' ')}\n`;
+      fs.appendFileSync(logFile, line);
+      console[level === 'error' ? 'error' : 'log']('[updater]', ...args);
+    } catch {
+      // 日志写入失败不影响更新流程
+    }
+  };
+  return {
+    log: (...args) => write('info', args),
+    warn: (...args) => write('warn', args),
+    error: (...args) => write('error', args),
+    getLogFile: () => logFile,
+  };
+}
 
 function createUpdaterController({
   isPackaged,
@@ -9,6 +30,9 @@ function createUpdaterController({
   schedule = setTimeout,
 }) {
   let initialized = false;
+  let checkAttempts = 0;
+  const MAX_CHECK_ATTEMPTS = 3;
+  const RETRY_DELAY_MS = 60000;
 
   function init() {
     if (initialized) return;
@@ -57,6 +81,16 @@ function createUpdaterController({
     });
     autoUpdater.on('error', (err) => {
       logger.error('[updater] 错误:', err.message);
+      // 检查失败自动重试（最多 3 次，间隔 60 秒）
+      if (checkAttempts < MAX_CHECK_ATTEMPTS) {
+        checkAttempts += 1;
+        logger.log(`[updater] ${RETRY_DELAY_MS / 1000} 秒后重试检查（第 ${checkAttempts}/${MAX_CHECK_ATTEMPTS} 次）`);
+        schedule(() => {
+          autoUpdater.checkForUpdatesAndNotify().catch((e) => logger.warn('[updater] 重试检查失败:', e.message));
+        }, RETRY_DELAY_MS);
+      } else {
+        logger.error('[updater] 检查重试次数已达上限，本次启动不再尝试');
+      }
     });
 
     // 启动后延迟 8 秒检查更新（避免抢启动资源）
@@ -66,7 +100,7 @@ function createUpdaterController({
         .catch((e) => logger.warn('[updater] 检查失败:', e.message));
     }, 8000);
 
-    logger.log('[updater] 自动更新已启用');
+    logger.log('[updater] 自动更新已启用，日志: ' + (logger.getLogFile ? logger.getLogFile() : '(控制台)'));
   }
 
   // 手动检查更新（菜单触发）
@@ -116,10 +150,18 @@ function getDefaultController() {
     console.warn('[updater] electron-updater 未安装，跳过自动更新:', e.message);
   }
 
+  let logger = console;
+  try {
+    logger = createFileLogger(app.getPath('userData'));
+  } catch (e) {
+    console.warn('[updater] 文件日志不可用，回退控制台:', e.message);
+  }
+
   defaultController = createUpdaterController({
     isPackaged: app.isPackaged,
     autoUpdater,
     dialog,
+    logger,
   });
   return defaultController;
 }
@@ -132,4 +174,4 @@ function checkForUpdatesManual() {
   getDefaultController().checkManual();
 }
 
-module.exports = { createUpdaterController, initUpdater, checkForUpdatesManual };
+module.exports = { createUpdaterController, createFileLogger, initUpdater, checkForUpdatesManual };
