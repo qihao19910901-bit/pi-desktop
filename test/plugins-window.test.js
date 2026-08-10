@@ -37,7 +37,15 @@ test('action posts JSON body with cwd and optional source/scope', async () => {
   assert.deepEqual(req.calls[0].options, {
     method: 'POST',
     body: { cwd: 'C:/repo', action: 'install', source: 'npm:demo', scope: 'global' },
+    timeoutMs: 180000,
   });
+});
+
+test('action uses the default timeout for lightweight actions', async () => {
+  const req = fakeRequest();
+  const handlers = createPluginHandlers({ port: 30141, request: req.impl });
+  await handlers.action({ cwd: 'C:/repo', action: 'disable', source: 'npm:demo' });
+  assert.equal(req.calls[0].options.timeoutMs, undefined);
 });
 
 test('action omits absent source and scope', async () => {
