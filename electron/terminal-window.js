@@ -3,7 +3,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { execFile } = require('node:child_process');
-const { BrowserWindow, ipcMain } = require('electron');
+const { BrowserWindow, ipcMain, app } = require('electron');
 
 // 危险命令模式（输入行命中时需确认）
 const DANGEROUS_PATTERNS = [
