@@ -41,7 +41,11 @@ function createPluginHandlers({ port, request = requestJson } = {}) {
       const body = { cwd, action };
       if (source) body.source = normalizeSource(source);
       if (scope) body.scope = scope;
-      return request(`${base}/api/plugins`, { method: 'POST', body });
+      // install/remove 会跑 npm/git 操作，需要更长超时（默认 15s 不够）
+      const timeoutMs = action === 'install' || action === 'remove' || action === 'update'
+        ? 180000
+        : undefined;
+      return request(`${base}/api/plugins`, { method: 'POST', body, timeoutMs });
     },
     async defaultCwd() {
       return resolveDefaultCwd();
