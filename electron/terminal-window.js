@@ -194,6 +194,7 @@ function createTerminalWindow({ projectRoot } = {}) {
   for (const channel of [
     'terminal:list-tabs', 'terminal:spawn', 'terminal:input', 'terminal:confirm-danger',
     'terminal:cancel-danger', 'terminal:resize', 'terminal:close-tab', 'terminal:get-shells',
+    'terminal:xterm-base',
   ]) {
     ipcMain.removeHandler(channel);
   }
