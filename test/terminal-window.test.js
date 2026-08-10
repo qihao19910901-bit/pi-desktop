@@ -110,7 +110,7 @@ test('spawnTab creates a pty and write routes through the line guard', () => {
   const r2 = manager.write(id, 'rm -rf /\r');
   assert.equal(r2.ok, false);
   assert.equal(r2.dangerous, true);
-  assert.equal(fake.ptyInstances[0].writes.length, 1); // 未写入
+  assert.equal(fake.ptyInstances[0].writes.length, 2); // export 初始化 + echo hi，危险行未写入
 
   // 确认后补写
   const confirmed = manager.confirmDanger(id);
