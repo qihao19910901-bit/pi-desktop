@@ -30,9 +30,10 @@ test('installer artifact name matches updater metadata', () => {
 
 test('the repository exposes deterministic quality commands', () => {
   assert.equal(pkg.scripts.test, 'node --test');
-  assert.equal(pkg.scripts['build:dir'], 'node electron/run-build.js --dir');
+  assert.equal(pkg.scripts['build:dir'], 'npm run rebuild:native && node electron/run-build.js --dir');
   assert.equal(pkg.scripts['verify:package'], 'node scripts/verify-package.js');
   assert.equal(pkg.scripts['smoke:package'], 'node scripts/smoke-packaged-app.js');
+  assert.equal(pkg.scripts['rebuild:native'], 'node scripts/rebuild-native.js');
 });
 
 test('development pi-web script is loopback only', () => {
