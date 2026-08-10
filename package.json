@@ -6,12 +6,13 @@
   "scripts": {
     "dev": "node electron/dev.js",
     "test": "node --test",
-    "build:dir": "node electron/run-build.js --dir",
-    "build": "node electron/run-build.js",
+    "build:dir": "npm run rebuild:native && node electron/run-build.js --dir",
+    "build": "npm run rebuild:native && node electron/run-build.js",
     "verify:package": "node scripts/verify-package.js",
     "smoke:package": "node scripts/smoke-packaged-app.js",
     "dist": "npm run build",
-    "start:piweb": "node_modules/@agegr/pi-web/bin/pi-web.js --hostname 127.0.0.1 --no-open"
+    "start:piweb": "node_modules/@agegr/pi-web/bin/pi-web.js --hostname 127.0.0.1 --no-open",
+    "rebuild:native": "node scripts/rebuild-native.js"
   },
   "keywords": [
     "pi",
@@ -28,7 +29,10 @@
   "dependencies": {
     "@agegr/pi-web": "0.8.7",
     "@earendil-works/pi-coding-agent": "0.84.1",
-    "electron-updater": "6.8.9"
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "electron-updater": "6.8.9",
+    "node-pty": "1.1.0"
   },
   "overrides": {
     "@agegr/pi-web": {
@@ -37,6 +41,7 @@
   },
   "devDependencies": {
     "@electron/asar": "4.2.1",
+    "@electron/rebuild": "4.2.0",
     "electron": "43.2.0",
     "electron-builder": "26.15.3",
     "yaml": "2.9.0"

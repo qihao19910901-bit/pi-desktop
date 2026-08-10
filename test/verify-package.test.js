@@ -13,6 +13,8 @@ const SHELL_FILES = [
   'electron/plugins-preload.js', 'electron/plugins-window.js', 'electron/plugins.html',
   'electron/templates-preload.js', 'electron/templates-window.js', 'electron/templates.html',
   'electron/settings-preload.js', 'electron/settings-window.js', 'electron/settings.html',
+  'electron/terminal-preload.js', 'electron/terminal-window.js', 'electron/terminal.html',
+  'electron/window-meta.js',
   'package.json',
 ];
 

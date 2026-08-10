@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>终端 - Pi Desktop</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1e1e2e; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  .toolbar {
+    display: flex; gap: 8px; align-items: center; padding: 8px 12px;
+    background: #181825; border-bottom: 1px solid #313244; flex-wrap: wrap;
+  }
+  .btn {
+    background: #313244; color: #cdd6f4; border: 1px solid #45475a;
+    border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:hover { background: #45475a; }
+  .btn.primary { background: #89b4fa; color: #11111b; border-color: #89b4fa; }
+  .btn.primary:hover { background: #a6c8ff; }
+  select, input[type=text] {
+    background: #11111b; color: #cdd6f4; border: 1px solid #45475a;
+    border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: inherit;
+  }
+  input[type=text] { flex: 1; min-width: 140px; }
+  .tabs { display: flex; gap: 4px; align-items: center; padding: 4px 12px 0;
+    background: #181825; }
+  .tab {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+    background: #11111b; border: 1px solid #313244; border-bottom: none;
+    border-radius: 6px 6px 0 0; font-size: 12px; color: #a6adc8; cursor: pointer;
+    max-width: 180px; white-space: nowrap; overflow: hidden;
+  }
+  .tab.active { background: #313244; color: #cdd6f4; }
+  .tab .close { color: #6c7086; padding: 0 2px; }
+  .tab .close:hover { color: #f38ba8; }
+  .tab-new { padding: 4px 8px; font-size: 14px; cursor: pointer; color: #6c7086; }
+  .tab-new:hover { color: #cdd6f4; }
+  .term-wrap { flex: 1; min-height: 0; padding: 4px 0; }
+  #term { height: 100%; padding: 0 8px; }
+  .danger-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  .danger-modal.show { display: flex; }
+  .danger-box {
+    background: #181825; border: 1px solid #f38ba8; border-radius: 10px;
+    padding: 18px 20px; width: 480px; max-width: 92vw;
+  }
+  .danger-box h3 { color: #f38ba8; font-size: 14px; margin-bottom: 10px; }
+  .danger-box .cmd {
+    background: #11111b; border: 1px solid #45475a; border-radius: 6px;
+    padding: 8px 10px; font-family: Consolas, monospace; font-size: 13px;
+    color: #f9e2af; word-break: break-all; margin-bottom: 12px;
+  }
+  .danger-box .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .err-msg { padding: 20px; color: #f38ba8; font-family: monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span style="font-size:12px;color:#6c7086;">Shell</span>
+  <select id="shellSelect"></select>
+  <input type="text" id="cwdInput" placeholder="工作目录（默认信任目录）">
+  <button class="btn" id="applyCwdBtn">切换</button>
+  <button class="btn primary" id="newTabBtn">新标签</button>
+</div>
+<div class="tabs" id="tabsBar"></div>
+<div class="term-wrap"><div id="term"></div></div>
+
+<div class="danger-modal" id="dangerModal">
+  <div class="danger-box">
+    <h3>⚠ 危险命令确认</h3>
+    <div class="cmd" id="dangerCmd"></div>
+    <div class="actions">
+      <button class="btn" id="dangerCancelBtn">取消</button>
+      <button class="btn danger" id="dangerOkBtn" style="color:#f38ba8;border-color:#f38ba8;background:transparent;">确认执行</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const shellSelect = document.getElementById('shellSelect');
+  const cwdInput = document.getElementById('cwdInput');
+  const tabsBar = document.getElementById('tabsBar');
+  const termEl = document.getElementById('term');
+  const dangerModal = document.getElementById('dangerModal');
+
+  // xterm 类（动态加载后可用）
+  const TerminalImpl = () => window.Terminal;
+  const FitAddon = () => window.FitAddon;
+
+  const terminals = new Map(); // tabId -> { term, fit, tabId, pendingDanger }
+  let activeTabId = null;
+  let defaultCwd = null;
+
+  function createTerminal(tabId) {
+    const term = new (TerminalImpl())({
+      fontFamily: 'Consolas, "Courier New", monospace',
+      fontSize: 13,
+      theme: { background: '#1e1e2e', foreground: '#cdd6f4', cursor: '#89b4fa' },
+      scrollback: 5000,
+    });
+    const fit = new (FitAddon().FitAddon)();
+    term.loadAddon(fit);
+    term.open(termEl);
+    fit.fit();
+    terminals.set(tabId, { term, fit, tabId });
+    term.onData((data) => window.piTerminal.input(tabId, data));
+    return { term, fit };
+  }
+
+  function showTerminal(tabId) {
+    const entry = terminals.get(tabId);
+    if (!entry) return;
+    activeTabId = tabId;
+    entry.term.open(termEl);
+    entry.fit.fit();
+    entry.term.focus();
+    renderTabs();
+  }
+
+  function renderTabs() {
+    window.piTerminal.listTabs().then((tabs) => {
+      tabsBar.innerHTML = '';
+      for (const t of tabs) {
+        const el = document.createElement('div');
+        el.className = 'tab' + (t.id === activeTabId ? ' active' : '');
+        const name = t.shell.split(/[\\/]/).pop().replace('.exe', '');
+        el.innerHTML = '<span>' + escapeHtml(name) + '</span><span class="close">✕</span>';
+        el.addEventListener('click', () => showTerminal(t.id));
+        el.querySelector('.close').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await window.piTerminal.closeTab(t.id);
+          const entry = terminals.get(t.id);
+          if (entry) { entry.term.dispose(); terminals.delete(t.id); }
+          const remaining = await window.piTerminal.listTabs();
+          if (remaining.length > 0) showTerminal(remaining[0].id);
+          else renderTabs();
+        });
+        tabsBar.appendChild(el);
+      }
+    });
+  }
+
+  async function newTab() {
+    const shell = shellSelect.value;
+    const cwd = cwdInput.value.trim() || defaultCwd;
+    const { id } = await window.piTerminal.spawn({ shell, cwd, cols: 100, rows: 30 });
+    const { term, fit } = createTerminal(id);
+    showTerminal(id);
+    // 窗口尺寸变化时 resize
+    const onResize = () => {
+      fit.fit();
+      window.piTerminal.resize(id, term.cols, term.rows);
+    };
+    window.addEventListener('resize', onResize);
+    window.piTerminal.onOutput((tid, data) => {
+      const t = terminals.get(tid);
+      if (t) t.term.write(data);
+    });
+    window.piTerminal.onExit((tid, code) => {
+      const t = terminals.get(tid);
+      if (t) t.term.write('\r\n[进程已退出，code=' + code + ']');
+    });
+    return id;
+  }
+
+  async function init() {
+    // 动态加载 xterm.js（打包后资源在 app.asar.unpacked，静态路径不可用）
+    try {
+      const base = await window.piTerminal.getXtermBase();
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'file://' + base.replace(/\\/g, '/') + '/xterm/css/xterm.css';
+      document.head.appendChild(css);
+      await new Promise((resolve, reject) => {
+        const s1 = document.createElement('script');
+        s1.src = 'file://' + base.replace(/\\/g, '/') + '/xterm/lib/xterm.js';
+        s1.onload = () => {
+          const s2 = document.createElement('script');
+          s2.src = 'file://' + base.replace(/\\/g, '/') + '/addon-fit/lib/addon-fit.js';
+          s2.onload = resolve;
+          s2.onerror = reject;
+          document.head.appendChild(s2);
+        };
+        s1.onerror = reject;
+        document.head.appendChild(s1);
+      });
+    } catch (e) {
+      termEl.innerHTML = '<div class="err-msg">xterm.js 加载失败: ' + escapeHtml(e.message) + '</div>';
+      return;
+    }
+    const shells = await window.piTerminal.getShells();
+    shellSelect.innerHTML = '';
+    for (const s of shells) {
+      const opt = document.createElement('option');
+      opt.value = s.file;
+      opt.textContent = s.name;
+      shellSelect.appendChild(opt);
+    }
+    if (shells.length === 0) {
+      termEl.innerHTML = '<div class="err-msg">未找到可用 shell</div>';
+      return;
+    }
+    await newTab();
+  }
+
+  document.getElementById('newTabBtn').addEventListener('click', newTab);
+  document.getElementById('applyCwdBtn').addEventListener('click', async () => {
+    const shell = shellSelect.value;
+    const cwd = cwdInput.value.trim() || defaultCwd;
+    const { id } = await window.piTerminal.spawn({ shell, cwd, cols: 100, rows: 30 });
+    const entry = terminals.get(id);
+    if (entry) entry.term.dispose();
+    terminals.delete(id);
+    const { term, fit } = createTerminal(id);
+    showTerminal(id);
+  });
+
+  // 危险命令确认（主进程检测到后通过 terminal:danger 事件通知）
+  let pendingDangerTab = null;
+  window.piTerminal.onDanger((tabId, line) => {
+    pendingDangerTab = tabId;
+    document.getElementById('dangerCmd').textContent = line;
+    dangerModal.classList.add('show');
+  });
+  document.getElementById('dangerOkBtn').addEventListener('click', async () => {
+    if (pendingDangerTab != null) {
+      await window.piTerminal.confirmDanger(pendingDangerTab);
+      pendingDangerTab = null;
+    }
+    dangerModal.classList.remove('show');
+  });
+  document.getElementById('dangerCancelBtn').addEventListener('click', async () => {
+    if (pendingDangerTab != null) {
+      await window.piTerminal.cancelDanger(pendingDangerTab);
+      pendingDangerTab = null;
+    }
+    dangerModal.classList.remove('show');
+  });
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[ch]);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

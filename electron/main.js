@@ -18,6 +18,7 @@ const { initUpdater, checkForUpdatesManual } = require('./updater');
 const { createPluginsWindow, destroyPluginsWindow } = require('./plugins-window');
 const { createTemplatesWindow, destroyTemplatesWindow } = require('./templates-window');
 const { createSettingsWindow, destroySettingsWindow, createSettingsHandlers, TOGGLE_SHORTCUT } = require('./settings-window');
+const { createTerminalWindow, destroyTerminalWindow } = require('./terminal-window');
 const { accountLabel, buildWindowTitle, ACCOUNT_BADGE_HTML } = require('./window-meta');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
@@ -360,6 +361,7 @@ function setAppMenu() {
       submenu: [
         { label: '插件管理…', click: () => createPluginsWindow({ port: PORT, projectRoot: PROJECT_ROOT }) },
         { label: '提示词模板…', click: () => createTemplatesWindow({ projectRoot: PROJECT_ROOT }) },
+        { label: '终端…', click: () => createTerminalWindow({ projectRoot: PROJECT_ROOT }) },
         { type: 'separator' },
         { label: '设置…', click: () => openSettingsWindow() },
       ],
@@ -506,6 +508,7 @@ app.on('before-quit', (event) => {
     destroyPluginsWindow();
     destroyTemplatesWindow();
     destroySettingsWindow();
+    destroyTerminalWindow();
     if (globalShortcutEnabled) {
       try { globalShortcut.unregister(TOGGLE_SHORTCUT); } catch (error) { /* 忽略 */ }
     }
