@@ -10,6 +10,8 @@ const EXPECTED = { desktop: '1.1.5', piWeb: '0.8.5', pi: '0.83.0' };
 const SHELL_FILES = [
   'electron/main.js', 'electron/preload.js', 'electron/tray.js', 'electron/updater.js',
   'electron/piweb-runtime.js', 'electron/piweb-service.js', 'electron/safe-html.js',
+  'electron/plugins-preload.js', 'electron/plugins-window.js', 'electron/plugins.html',
+  'electron/templates-preload.js', 'electron/templates-window.js', 'electron/templates.html',
   'package.json',
 ];
 

@@ -11,6 +11,12 @@ const SHELL_PATHS = [
   '/electron/piweb-runtime.js',
   '/electron/piweb-service.js',
   '/electron/safe-html.js',
+  '/electron/plugins-preload.js',
+  '/electron/plugins-window.js',
+  '/electron/plugins.html',
+  '/electron/templates-preload.js',
+  '/electron/templates-window.js',
+  '/electron/templates.html',
   '/package.json',
 ];
 const UNPACKED_PATHS = [
