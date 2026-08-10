@@ -79,6 +79,27 @@
     background: rgba(243,139,168,.12); border: 1px solid #f38ba8; color: #f38ba8;
   }
   .banner.show { display: block; }
+
+  /* 模态框（Electron 不支持 window.prompt/confirm，用自定义弹层） */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #181825; border: 1px solid #45475a; border-radius: 10px;
+    padding: 18px 20px; width: 400px; max-width: 90vw;
+  }
+  .modal h3 { font-size: 14px; margin-bottom: 12px; }
+  .modal input[type=text] {
+    width: 100%; background: #11111b; color: #cdd6f4; border: 1px solid #45475a;
+    border-radius: 6px; padding: 7px 10px; font-size: 13px; margin-bottom: 12px;
+    font-family: inherit;
+  }
+  .modal .scope-row { display: flex; gap: 14px; margin-bottom: 14px; font-size: 13px; }
+  .modal .scope-row label { display: flex; align-items: center; gap: 6px; color: #a6adc8; cursor: pointer; }
+  .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .modal .modal-text { font-size: 13px; color: #cdd6f4; margin-bottom: 14px; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -108,6 +129,34 @@
   </div>
 </div>
 
+<!-- 新建模板模态框 -->
+<div class="modal-overlay" id="newModal">
+  <div class="modal">
+    <h3>新建模板</h3>
+    <input type="text" id="newNameInput" placeholder="模板名称（不含 .md），如 review">
+    <div class="scope-row">
+      <label><input type="radio" name="newScope" value="global" checked> 全局（所有项目可用）</label>
+      <label><input type="radio" name="newScope" value="project"> 项目（仅当前目录）</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="newCancelBtn">取消</button>
+      <button class="btn primary" id="newConfirmBtn">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- 确认模态框 -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">确认</h3>
+    <div class="modal-text" id="confirmText"></div>
+    <div class="modal-actions">
+      <button class="btn" id="confirmCancelBtn">取消</button>
+      <button class="btn danger" id="confirmOkBtn">确定</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   const listEl = document.getElementById('templateList');
@@ -126,6 +175,23 @@
   let templates = [];
   let current = null;      // 当前打开的模板 { path, name }
   let dirty = false;
+  let pendingConfirm = null; // 确认回调
+
+  // ---- 模态框（Electron 不支持 window.prompt/confirm） ----
+  const newModal = document.getElementById('newModal');
+  const newNameInput = document.getElementById('newNameInput');
+  const confirmModal = document.getElementById('confirmModal');
+  const confirmTitle = document.getElementById('confirmTitle');
+  const confirmText = document.getElementById('confirmText');
+
+  function showConfirm(title, text, onOk) {
+    confirmTitle.textContent = title;
+    confirmText.textContent = text;
+    pendingConfirm = onOk;
+    confirmModal.classList.add('show');
+  }
+  function hideConfirm() { confirmModal.classList.remove('show'); pendingConfirm = null; }
+  function hideNew() { newModal.classList.remove('show'); newNameInput.value = ''; }
 
   function showBanner(message) {
     bannerEl.textContent = message;
@@ -175,9 +241,13 @@
 
   async function openTemplate(t) {
     if (dirty) {
-      const ok = window.confirm('当前模板有未保存的修改，放弃吗？');
-      if (!ok) return;
+      showConfirm('未保存的修改', '当前模板有未保存的修改，放弃吗？', () => { doOpen(t); });
+      return;
     }
+    doOpen(t);
+  }
+
+  async function doOpen(t) {
     try {
       const content = await window.piTemplates.read(cwd, t.path);
       current = { path: t.path, name: t.name };
@@ -210,42 +280,49 @@
 
   async function removeTemplate() {
     if (!current) return;
-    const ok = window.confirm('确定删除模板 /' + current.name + ' 吗？');
-    if (!ok) return;
-    try {
-      await window.piTemplates.remove(cwd, current.path);
-      current = null;
-      contentInput.value = '';
-      contentInput.disabled = true;
-      pathLabel.textContent = '未选择模板';
-      saveBtn.disabled = true;
-      copyBtn.disabled = true;
-      deleteBtn.disabled = true;
-      await load();
-    } catch (error) {
-      showBanner('删除失败：' + error.message);
-    }
+    showConfirm('删除模板', '确定删除模板 /' + current.name + ' 吗？', async () => {
+      try {
+        await window.piTemplates.remove(cwd, current.path);
+        current = null;
+        contentInput.value = '';
+        contentInput.disabled = true;
+        pathLabel.textContent = '未选择模板';
+        saveBtn.disabled = true;
+        copyBtn.disabled = true;
+        deleteBtn.disabled = true;
+        await load();
+      } catch (error) {
+        showBanner('删除失败：' + error.message);
+      }
+    });
   }
 
   function newTemplate() {
     if (dirty) {
-      const ok = window.confirm('当前模板有未保存的修改，放弃吗？');
-      if (!ok) return;
+      showConfirm('未保存的修改', '当前模板有未保存的修改，放弃吗？', () => { newModal.classList.add('show'); newNameInput.focus(); });
+      return;
     }
-    const name = window.prompt('模板名称（不含 .md）：', 'my-template');
-    if (!name) return;
-    const isProject = window.confirm('创建为项目模板？（确定=项目，取消=全局）');
-    if (isProject && !cwd) { showBanner('未找到项目目录，请先填写工作目录'); return; }
-    createNew(name.trim(), isProject);
+    newModal.classList.add('show');
+    newNameInput.focus();
   }
 
-  async function createNew(name, isProject) {
+  function createNew() {
+    const name = newNameInput.value.trim();
+    if (!name) { showBanner('请输入模板名称'); return; }
+    const scope = document.querySelector('input[name="newScope"]:checked').value;
+    const isProject = scope === 'project';
+    if (isProject && !cwd) { showBanner('未找到项目目录，请先填写工作目录'); return; }
+    hideNew();
+    doCreateNew(name, isProject);
+  }
+
+  async function doCreateNew(name, isProject) {
     try {
       const filePath = await window.piTemplates.newPath(cwd, name, isProject);
       await window.piTemplates.write(cwd, filePath, '---\ndescription: 模板说明\n---\n\n在这里输入模板内容');
       await load();
       const t = templates.find((x) => x.path === filePath);
-      if (t) await openTemplate(t);
+      if (t) await doOpen(t);
     } catch (error) {
       showBanner('新建失败：' + error.message);
     }
@@ -273,6 +350,19 @@
       showBanner('复制失败');
     }
   });
+
+  // 模态框事件
+  document.getElementById('newCancelBtn').addEventListener('click', hideNew);
+  document.getElementById('newConfirmBtn').addEventListener('click', createNew);
+  newNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') createNew(); });
+  newModal.addEventListener('click', (e) => { if (e.target === newModal) hideNew(); });
+  document.getElementById('confirmCancelBtn').addEventListener('click', hideConfirm);
+  document.getElementById('confirmOkBtn').addEventListener('click', () => {
+    const cb = pendingConfirm;
+    hideConfirm();
+    if (cb) cb();
+  });
+  confirmModal.addEventListener('click', (e) => { if (e.target === confirmModal) hideConfirm(); });
 
   async function init() {
     try {

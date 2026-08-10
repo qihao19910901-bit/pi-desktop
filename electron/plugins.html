@@ -89,6 +89,20 @@
   .diagnostic.warning { color: #f9e2af; }
   .diagnostic.error { color: #f38ba8; }
   .loading { text-align: center; color: #6c7086; padding: 40px; }
+
+  /* 模态框（Electron 不支持 window.confirm） */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #181825; border: 1px solid #45475a; border-radius: 10px;
+    padding: 18px 20px; width: 420px; max-width: 90vw;
+  }
+  .modal h3 { font-size: 14px; margin-bottom: 12px; }
+  .modal .modal-text { font-size: 13px; color: #cdd6f4; margin-bottom: 14px; line-height: 1.6; word-break: break-all; }
+  .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 </style>
 </head>
 <body>
@@ -114,6 +128,18 @@
   <div class="loading">加载中…</div>
 </main>
 
+<!-- 确认模态框 -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">确认</h3>
+    <div class="modal-text" id="confirmText"></div>
+    <div class="modal-actions">
+      <button class="btn" id="confirmCancelBtn">取消</button>
+      <button class="btn danger" id="confirmOkBtn">确定</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   const listEl = document.getElementById('list');
@@ -126,6 +152,19 @@
   const scopeSelect = document.getElementById('scopeSelect');
 
   let cwd = null;
+  let pendingConfirm = null;
+
+  // ---- 模态框（Electron 不支持 window.confirm） ----
+  const confirmModal = document.getElementById('confirmModal');
+  const confirmTitle = document.getElementById('confirmTitle');
+  const confirmText = document.getElementById('confirmText');
+  function showConfirm(title, text, onOk) {
+    confirmTitle.textContent = title;
+    confirmText.textContent = text;
+    pendingConfirm = onOk;
+    confirmModal.classList.add('show');
+  }
+  function hideConfirm() { confirmModal.classList.remove('show'); pendingConfirm = null; }
 
   function showBanner(message, isError) {
     if (!message) { bannerEl.textContent = ''; bannerEl.className = ''; return; }
@@ -234,9 +273,13 @@
 
   async function runAction(pkg, action) {
     if (action === 'remove') {
-      const ok = window.confirm('确定要移除插件 ' + pkg.source + ' 吗？\n此操作会删除已安装的插件文件。');
-      if (!ok) return;
+      showConfirm('移除插件', '确定要移除插件 ' + pkg.source + ' 吗？\n此操作会删除已安装的插件文件。', () => doAction(pkg, action));
+      return;
     }
+    await doAction(pkg, action);
+  }
+
+  async function doAction(pkg, action) {
     try {
       await window.piDesktop.runAction({ cwd, action, source: pkg.source, scope: pkg.scope });
       showBanner('操作成功');
@@ -269,6 +312,15 @@
   cwdApplyBtn.addEventListener('click', applyCwd);
   cwdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyCwd(); });
   installBtn.addEventListener('click', install);
+
+  // 模态框事件
+  document.getElementById('confirmCancelBtn').addEventListener('click', hideConfirm);
+  document.getElementById('confirmOkBtn').addEventListener('click', () => {
+    const cb = pendingConfirm;
+    hideConfirm();
+    if (cb) cb();
+  });
+  confirmModal.addEventListener('click', (e) => { if (e.target === confirmModal) hideConfirm(); });
   sourceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') install(); });
 
   function applyCwd() {
