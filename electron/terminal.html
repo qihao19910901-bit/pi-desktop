@@ -91,11 +91,16 @@
   const TerminalImpl = () => window.Terminal;
   const FitAddon = () => window.FitAddon;
 
-  const terminals = new Map(); // tabId -> { term, fit, tabId, pendingDanger }
+  const terminals = new Map(); // tabId -> { term, fit, tabId, container }
   let activeTabId = null;
   let defaultCwd = null;
 
   function createTerminal(tabId) {
+    // 每个标签独立容器（xterm 实例绑定唯一容器，切换只改 display，不重复 open）
+    const container = document.createElement('div');
+    container.className = 'term-container';
+    container.style.display = 'none';
+    termEl.appendChild(container);
     const term = new (TerminalImpl())({
       fontFamily: 'Consolas, "Courier New", monospace',
       fontSize: 13,
@@ -104,21 +109,30 @@
     });
     const fit = new (FitAddon().FitAddon)();
     term.loadAddon(fit);
-    term.open(termEl);
+    term.open(container);
     fit.fit();
-    terminals.set(tabId, { term, fit, tabId });
+    terminals.set(tabId, { term, fit, tabId, container });
     term.onData((data) => window.piTerminal.input(tabId, data));
-    return { term, fit };
+    return { term, fit, container };
   }
 
   function showTerminal(tabId) {
     const entry = terminals.get(tabId);
     if (!entry) return;
     activeTabId = tabId;
-    entry.term.open(termEl);
+    for (const t of terminals.values()) {
+      t.container.style.display = t.tabId === tabId ? '' : 'none';
+    }
     entry.fit.fit();
     entry.term.focus();
     renderTabs();
+  }
+
+  function fitActive() {
+    const entry = terminals.get(activeTabId);
+    if (!entry) return;
+    entry.fit.fit();
+    window.piTerminal.resize(activeTabId, entry.term.cols, entry.term.rows);
   }
 
   function renderTabs() {
@@ -148,22 +162,8 @@
     const shell = shellSelect.value;
     const cwd = cwdInput.value.trim() || defaultCwd;
     const { id } = await window.piTerminal.spawn({ shell, cwd, cols: 100, rows: 30 });
-    const { term, fit } = createTerminal(id);
+    const { term, fit, container } = createTerminal(id);
     showTerminal(id);
-    // 窗口尺寸变化时 resize
-    const onResize = () => {
-      fit.fit();
-      window.piTerminal.resize(id, term.cols, term.rows);
-    };
-    window.addEventListener('resize', onResize);
-    window.piTerminal.onOutput((tid, data) => {
-      const t = terminals.get(tid);
-      if (t) t.term.write(data);
-    });
-    window.piTerminal.onExit((tid, code) => {
-      const t = terminals.get(tid);
-      if (t) t.term.write('\r\n[进程已退出，code=' + code + ']');
-    });
     return id;
   }
 
@@ -192,6 +192,16 @@
       termEl.innerHTML = '<div class="err-msg">xterm.js 加载失败: ' + escapeHtml(e.message) + '</div>';
       return;
     }
+    // 事件监听只注册一次（输出/退出/危险）
+    window.piTerminal.onOutput((tid, data) => {
+      const t = terminals.get(tid);
+      if (t) t.term.write(data);
+    });
+    window.piTerminal.onExit((tid, code) => {
+      const t = terminals.get(tid);
+      if (t) t.term.write('\r\n[进程已退出，code=' + code + ']');
+    });
+    window.addEventListener('resize', fitActive);
     const shells = await window.piTerminal.getShells();
     shellSelect.innerHTML = '';
     for (const s of shells) {
