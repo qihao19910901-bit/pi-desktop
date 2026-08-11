@@ -85,9 +85,15 @@ function parseClaude(filePath) {
     try { entry = JSON.parse(line); } catch { continue; }
     const msg = entry.message;
     if (!msg || (msg.role !== 'user' && msg.role !== 'assistant')) continue;
-    const content = Array.isArray(msg.content) ? msg.content : [];
-    const texts = content.filter((c) => c && c.type === 'text' && typeof c.text === 'string').map((c) => c.text);
-    const text = texts.join('\n').trim();
+    let text = '';
+    if (typeof msg.content === 'string') {
+      text = msg.content.trim(); // Claude user 消息 content 是字符串
+    } else if (Array.isArray(msg.content)) {
+      const texts = msg.content
+        .filter((c) => c && c.type === 'text' && typeof c.text === 'string')
+        .map((c) => c.text);
+      text = texts.join('\n').trim();
+    }
     if (!text) continue;
     messages.push({
       role: msg.role,

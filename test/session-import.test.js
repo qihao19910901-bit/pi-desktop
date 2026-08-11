@@ -95,3 +95,18 @@ test('importSession rejects bad inputs', (t) => {
   fs.writeFileSync(src, '{"type":"session_meta"}\n');
   assert.throws(() => importSession({ source: src, type: 'codex', cwd: 'F:/x' }, homedir), /没有可导入的消息/);
 });
+
+test('parseClaude handles string content (real Claude user format)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-imp-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 's.jsonl');
+  fs.writeFileSync(file, [
+    JSON.stringify({ type: 'user', message: { role: 'user', content: '直接字符串内容', timestamp: '2026-07-01T00:00:00.000Z' } }),
+    JSON.stringify({ message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'x' }, { type: 'text', text: '数组内容' }], timestamp: '2026-07-01T00:00:01.000Z' } }),
+    JSON.stringify({ message: { role: 'assistant', content: [{ type: 'thinking', thinking: '只有思考' }], timestamp: '2026-07-01T00:00:02.000Z' } }),
+  ].join('\n'));
+  const messages = parseClaude(file);
+  assert.equal(messages.length, 2); // 纯 thinking 跳过
+  assert.equal(messages[0].text, '直接字符串内容');
+  assert.equal(messages[1].text, '数组内容');
+});
