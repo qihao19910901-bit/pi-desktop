@@ -120,6 +120,10 @@ async function bootstrap() {
   if (SMOKE_MODE && process.env.PI_SMOKE_OPEN_TERMINAL === '1') {
     createTerminalWindow({ projectRoot: PROJECT_ROOT });
   }
+  // smoke 测试钩子：自动打开设置窗口（仅 CI/本地验证用）
+  if (SMOKE_MODE && process.env.PI_SMOKE_OPEN_SETTINGS === '1') {
+    openSettingsWindow();
+  }
   createTray({
     onNewWindow: () => createWindow(),
     onNewSession: () => {
