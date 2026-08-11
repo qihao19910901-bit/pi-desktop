@@ -346,3 +346,39 @@ test('tolerates elements without closest (defensive)', () => {
   api.translateNode(el);
   assert.equal(el.placeholder, '搜索...');
 });
+
+// ============ 斜杠命令补全 ============
+
+test('slashMatches returns commands matching the prefix', () => {
+  const { api } = loadPreload();
+  const matches = api.slashMatches('/t');
+  assert.ok(matches.some((c) => c.command === '/tree'));
+  assert.ok(matches.every((c) => c.command.startsWith('/t')));
+});
+
+test('slashMatches returns all commands for bare slash', () => {
+  const { api } = loadPreload();
+  const matches = api.slashMatches('/');
+  assert.equal(matches.length, api.SLASH_COMMANDS.length);
+});
+
+test('slashMatches ignores non-slash and comment input', () => {
+  const { api } = loadPreload();
+  assert.equal(api.slashMatches('tree').length, 0);
+  assert.equal(api.slashMatches('//comment').length, 0);
+  assert.equal(api.slashMatches('').length, 0);
+  assert.equal(api.slashMatches(undefined).length, 0);
+});
+
+test('slashMatches is case-insensitive', () => {
+  const { api } = loadPreload();
+  assert.ok(api.slashMatches('/HELP').some((c) => c.command === '/help'));
+});
+
+test('SLASH_COMMANDS covers the documented command set', () => {
+  const { api } = loadPreload();
+  const commands = api.SLASH_COMMANDS.map((c) => c.command);
+  for (const required of ['/tree', '/export', '/compact', '/help', '/name', '/clear', '/fork', '/reload']) {
+    assert.ok(commands.includes(required), required);
+  }
+});

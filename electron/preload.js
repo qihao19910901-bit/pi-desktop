@@ -409,6 +409,129 @@ if (document.readyState === 'loading') {
   startEnhancers();
 }
 
+// ============ 斜杠命令补全（P2-5） ============
+// pi-web 输入框不识别斜杠命令（无补全 UI），但 pi 后端 prompt 通道支持命令展开
+// （rpc.md：扩展命令立即执行、skill/模板命令展开）。此处注入补全浮层，纯前端增强。
+const SLASH_COMMANDS = [
+  { command: '/tree', hint: '会话树导航' },
+  { command: '/export', hint: '导出会话' },
+  { command: '/compact', hint: '压缩上下文' },
+  { command: '/help', hint: '帮助' },
+  { command: '/name', hint: '设置会话名' },
+  { command: '/clear', hint: '清空会话' },
+  { command: '/fork', hint: '从当前分支派生' },
+  { command: '/session', hint: '会话信息' },
+  { command: '/reload', hint: '重载扩展/资源' },
+  { command: '/share', hint: '分享为 Gist' },
+];
+
+function slashMatches(input) {
+  if (typeof input !== 'string' || !input.startsWith('/') || input.startsWith('//')) return [];
+  const query = input.toLowerCase();
+  return SLASH_COMMANDS.filter((c) => c.command.toLowerCase().startsWith(query));
+}
+
+let slashMenu = null;
+function showSlashMenu(items, anchorEl) {
+  hideSlashMenu();
+  if (!items.length || !anchorEl) return;
+  const menu = document.createElement('div');
+  menu.id = '__pi-slash-menu';
+  Object.assign(menu.style, {
+    position: 'fixed',
+    zIndex: '2147483646',
+    background: '#1e1e2e',
+    color: '#cdd6f4',
+    border: '1px solid #45475a',
+    borderRadius: '8px',
+    padding: '4px',
+    fontSize: '13px',
+    fontFamily: 'system-ui',
+    boxShadow: '0 4px 16px rgba(0,0,0,.4)',
+    maxHeight: '240px',
+    overflowY: 'auto',
+    minWidth: '220px',
+  });
+  items.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.dataset.index = String(index);
+    Object.assign(row.style, {
+      padding: '6px 10px',
+      borderRadius: '6px',
+      cursor: 'pointer',
+      display: 'flex',
+      justifyContent: 'space-between',
+      gap: '16px',
+    });
+    row.innerHTML = '<span style="color:#89dceb;font-weight:600;">' + escapeSlashHtml(item.command) + '</span>'
+      + '<span style="color:#6c7086;font-size:12px;">' + escapeSlashHtml(item.hint) + '</span>';
+    row.addEventListener('mouseenter', () => { row.style.background = '#313244'; });
+    row.addEventListener('mouseleave', () => { row.style.background = ''; });
+    row.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      insertSlashCommand(anchorEl, item.command);
+    });
+    menu.appendChild(row);
+  });
+  document.body.appendChild(menu);
+  slashMenu = menu;
+  // 定位到输入框上方
+  const rect = anchorEl.getBoundingClientRect();
+  const top = Math.max(4, rect.top - menu.offsetHeight - 4);
+  menu.style.left = Math.max(4, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 4)) + 'px';
+  menu.style.top = top + 'px';
+}
+
+function hideSlashMenu() {
+  if (slashMenu && slashMenu.parentElement) slashMenu.parentElement.removeChild(slashMenu);
+  slashMenu = null;
+}
+
+function insertSlashCommand(inputEl, command) {
+  hideSlashMenu();
+  try {
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(inputEl), 'value')?.set;
+    if (setter) {
+      setter.call(inputEl, command + ' ');
+    } else {
+      inputEl.value = command + ' ';
+    }
+    inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+    inputEl.focus();
+  } catch (e) { /* 忽略 */ }
+}
+
+function escapeSlashHtml(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[ch]);
+}
+
+function isSlashInput(el) {
+  return el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.isContentEditable)
+    && el.matches && el.matches('textarea, input[type="text"], [contenteditable="true"], [role="textbox"]');
+}
+
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (!isSlashInput(el)) return;
+  const value = typeof el.value === 'string' ? el.value : (el.textContent || '');
+  const items = slashMatches(value);
+  if (items.length > 0) showSlashMenu(items, el);
+  else hideSlashMenu();
+}, true);
+
+document.addEventListener('keydown', (e) => {
+  if (!slashMenu) return;
+  if (e.key === 'Escape') {
+    hideSlashMenu();
+  }
+}, true);
+
+document.addEventListener('click', (e) => {
+  if (slashMenu && !slashMenu.contains(e.target)) hideSlashMenu();
+}, true);
+
 // ============ 外链拦截：用系统浏览器打开外部链接 ============
 document.addEventListener('click', (event) => {
   const link = event.target.closest('a[href]');
@@ -445,4 +568,6 @@ module.exports = {
   walkAndTranslate,
   ZH_MAP,
   ZH_MAP_PLACEHOLDER,
+  SLASH_COMMANDS,
+  slashMatches,
 };
