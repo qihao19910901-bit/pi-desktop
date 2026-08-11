@@ -482,6 +482,21 @@ function openSettingsWindow() {
   return win;
 }
 
+// ============ @ 文件引用（preload 补全用） ============
+ipcMain.handle('shell:list-cwd', () => {
+  // 列出当前项目目录（信任目录第一个）的文件/目录名
+  const cwd = resolveDefaultCwd();
+  try {
+    return fs.readdirSync(cwd, { withFileTypes: true })
+      .filter((e) => !e.name.startsWith('.'))
+      .map((e) => e.isDirectory() ? e.name + '/' : e.name)
+      .slice(0, 200);
+  } catch (error) {
+    console.error('[main] list-cwd 失败:', error.message);
+    return [];
+  }
+});
+
 // ============ 外链拦截 ============
 ipcMain.on('open-external', (_event, value) => {
   try {

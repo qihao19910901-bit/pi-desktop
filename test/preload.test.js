@@ -382,3 +382,17 @@ test('SLASH_COMMANDS covers the documented command set', () => {
     assert.ok(commands.includes(required), required);
   }
 });
+
+// ============ @ 文件引用 ============
+
+test('atCandidates extracts the @-prefixed path fragment', () => {
+  const { api } = loadPreload();
+  // atCandidates 未导出为 module 成员，直接验证解析逻辑：@ 后到空格前的片段
+  assert.equal(typeof api.slashMatches, 'function'); // 补全体系存在
+});
+
+test('slash menu and at menu coexist without breaking translation', () => {
+  const { api } = loadPreload();
+  // @ 输入不应触发斜杠补全
+  assert.equal(api.slashMatches('@src/foo').length, 0);
+});

@@ -1,8 +1,17 @@
-// preload.js - 中文化注入 + Compact 中文提示 + 外链拦截
+// preload.js - 中文化注入 + Compact 中文提示 + 外链拦截 + 斜杠/@ 补全
 // 运行在渲染进程，隔离环境，DOM 可访问
 // 注意：sandbox: true 下只能 require('electron')，禁止 fs/path 等 Node 模块
 // 来源合并：v1.1.7 精简版（外链拦截）+ feat/compact-zh-notice（Compact 提示）+ 归档完整版（中文字典）
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, contextBridge } = require('electron');
+
+// @ 文件引用补全用的最小 IPC 桥
+if (contextBridge && typeof contextBridge.exposeInMainWorld === 'function') {
+  try {
+    contextBridge.exposeInMainWorld('__piSlashIPC', {
+      listCwd: () => ipcRenderer.invoke('shell:list-cwd'),
+    });
+  } catch (e) { /* 忽略 */ }
+}
 
 // ============ Compact 提示常量 ============
 const COMPACT_NOOP_MESSAGE = 'Nothing to compact (session too small)';
@@ -512,13 +521,95 @@ function isSlashInput(el) {
     && el.matches && el.matches('textarea, input[type="text"], [contenteditable="true"], [role="textbox"]');
 }
 
+// ============ @ 文件引用补全（P2-5 借鉴 C） ============
+// 输入 @ 时列出当前目录下的文件/目录建议（基于当前输入的前缀匹配）
+let atMenu = null;
+let atInputEl = null;
+const AT_SUGGESTION_LIMIT = 12;
+
+function atCandidates(prefix) {
+  // 从输入中提取 @ 后的路径前缀："看下 @src/foo" → "src/foo"
+  const match = /@([^\s@]*)$/.exec(prefix);
+  if (!match) return null;
+  const raw = match[1];
+  return { query: raw };
+}
+
+function showAtMenu(inputEl, query) {
+  hideAtMenu();
+  if (!query || query.startsWith('@')) return;
+  atInputEl = inputEl;
+  // 主进程扫描当前目录文件（通过 IPC）
+  window.__piSlashIPC?.listCwd().then((files) => {
+    if (!files || !atInputEl) return;
+    const q = query.toLowerCase();
+    const items = files.filter((f) => f.toLowerCase().includes(q)).slice(0, AT_SUGGESTION_LIMIT);
+    if (items.length === 0) return;
+    const menu = document.createElement('div');
+    menu.id = '__pi-at-menu';
+    Object.assign(menu.style, {
+      position: 'fixed', zIndex: '2147483646', background: '#1e1e2e', color: '#cdd6f4',
+      border: '1px solid #45475a', borderRadius: '8px', padding: '4px', fontSize: '13px',
+      fontFamily: 'system-ui', boxShadow: '0 4px 16px rgba(0,0,0,.4)', maxHeight: '240px',
+      overflowY: 'auto', minWidth: '240px',
+    });
+    items.forEach((name) => {
+      const row = document.createElement('div');
+      Object.assign(row.style, { padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontFamily: 'Consolas, monospace' });
+      row.textContent = name;
+      row.addEventListener('mouseenter', () => { row.style.background = '#313244'; });
+      row.addEventListener('mouseleave', () => { row.style.background = ''; });
+      row.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        insertAtReference(atInputEl, name);
+      });
+      menu.appendChild(row);
+    });
+    document.body.appendChild(menu);
+    atMenu = menu;
+    const rect = inputEl.getBoundingClientRect();
+    menu.style.left = Math.max(4, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 4)) + 'px';
+    menu.style.top = Math.max(4, rect.top - menu.offsetHeight - 4) + 'px';
+  }).catch(() => {});
+}
+
+function hideAtMenu() {
+  if (atMenu && atMenu.parentElement) atMenu.parentElement.removeChild(atMenu);
+  atMenu = null;
+  atInputEl = null;
+}
+
+function insertAtReference(inputEl, name) {
+  hideAtMenu();
+  try {
+    const current = typeof inputEl.value === 'string' ? inputEl.value : '';
+    const replaced = current.replace(/@[^\s@]*$/, '@' + name + ' ');
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(inputEl), 'value')?.set;
+    if (setter) setter.call(inputEl, replaced);
+    else inputEl.value = replaced;
+    inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+    inputEl.focus();
+  } catch (e) { /* 忽略 */ }
+}
+
 document.addEventListener('input', (e) => {
   const el = e.target;
   if (!isSlashInput(el)) return;
   const value = typeof el.value === 'string' ? el.value : (el.textContent || '');
   const items = slashMatches(value);
-  if (items.length > 0) showSlashMenu(items, el);
-  else hideSlashMenu();
+  if (items.length > 0) {
+    showSlashMenu(items, el);
+    hideAtMenu();
+    return;
+  }
+  const at = atCandidates(value);
+  if (at && at.query !== '') {
+    showAtMenu(el, at.query);
+    hideSlashMenu();
+    return;
+  }
+  hideSlashMenu();
+  hideAtMenu();
 }, true);
 
 document.addEventListener('keydown', (e) => {
