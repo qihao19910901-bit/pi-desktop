@@ -116,6 +116,10 @@ async function bootstrap() {
   createWindow();
   if (!SMOKE_MODE) initUpdater();
   initSettings();
+  // smoke 测试钩子：自动打开终端窗口（仅 CI/本地验证用）
+  if (SMOKE_MODE && process.env.PI_SMOKE_OPEN_TERMINAL === '1') {
+    createTerminalWindow({ projectRoot: PROJECT_ROOT });
+  }
   createTray({
     onNewWindow: () => createWindow(),
     onNewSession: () => {
