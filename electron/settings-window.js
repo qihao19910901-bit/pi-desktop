@@ -1,6 +1,7 @@
 // settings-window.js - 设置窗口（P2-1：开机自启/全局快捷键/更新/诊断）
 const path = require('node:path');
 const { BrowserWindow, ipcMain, globalShortcut } = require('electron');
+const { listConfigFiles, readConfigFile, writeConfigFile } = require('./config-files');
 
 // 全局快捷键：显示/隐藏主窗口
 const TOGGLE_SHORTCUT = 'CommandOrControl+Shift+P';
@@ -129,6 +130,7 @@ function createSettingsWindow({ projectRoot, app, shell, handlers } = {}) {
   for (const channel of [
     'settings:get-state', 'settings:set-autostart', 'settings:set-shortcut',
     'settings:open-log-dir', 'settings:check-update', 'settings:copy-diagnostics',
+    'settings:config-list', 'settings:config-read', 'settings:config-write',
   ]) {
     ipcMain.removeHandler(channel);
   }
@@ -138,6 +140,9 @@ function createSettingsWindow({ projectRoot, app, shell, handlers } = {}) {
   ipcMain.handle('settings:open-log-dir', () => handlers.openLogDir());
   ipcMain.handle('settings:check-update', () => handlers.checkUpdate());
   ipcMain.handle('settings:copy-diagnostics', () => handlers.copyDiagnostics());
+  ipcMain.handle('settings:config-list', () => listConfigFiles());
+  ipcMain.handle('settings:config-read', (_e, name) => readConfigFile(name));
+  ipcMain.handle('settings:config-write', (_e, name, content) => writeConfigFile(name, content));
 
   win.loadFile(path.join(__dirname, 'settings.html'));
   win.once('ready-to-show', () => win.show());

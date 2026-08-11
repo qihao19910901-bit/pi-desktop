@@ -8,4 +8,7 @@ contextBridge.exposeInMainWorld('piSettings', {
   openLogDir: () => ipcRenderer.invoke('settings:open-log-dir'),
   checkUpdate: () => ipcRenderer.invoke('settings:check-update'),
   copyDiagnostics: () => ipcRenderer.invoke('settings:copy-diagnostics'),
+  configList: () => ipcRenderer.invoke('settings:config-list'),
+  configRead: (name) => ipcRenderer.invoke('settings:config-read', name),
+  configWrite: (name, content) => ipcRenderer.invoke('settings:config-write', name, content),
 });

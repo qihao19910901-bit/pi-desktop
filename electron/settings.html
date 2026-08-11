@@ -39,6 +39,23 @@
   .banner.show { display: block; }
   .diag-line { font-size: 12px; color: #a6adc8; padding: 2px 0; }
   .diag-line b { color: #cdd6f4; font-weight: 600; }
+
+  /* 配置编辑器 */
+  .config-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 0;
+    border-bottom: 1px solid #313244; flex-wrap: wrap;
+  }
+  .config-row:last-child { border-bottom: none; }
+  .config-row .cname { font-family: Consolas, monospace; font-size: 13px; color: #89dceb; min-width: 120px; }
+  .config-row .cmeta { font-size: 12px; color: #6c7086; flex: 1; }
+  .config-row .sensitive { color: #f9e2af; font-size: 11px; }
+  .config-modal textarea {
+    width: 100%; height: 320px; background: #11111b; color: #cdd6f4;
+    border: 1px solid #45475a; border-radius: 6px; padding: 10px;
+    font-family: Consolas, monospace; font-size: 12px; line-height: 1.5;
+    resize: vertical; margin-bottom: 10px;
+  }
+  .config-modal .path-hint { font-size: 11px; color: #585b70; margin-bottom: 8px; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -81,6 +98,27 @@
     <button class="btn" id="copyDiagBtn">复制诊断信息</button>
   </div>
 </section>
+
+<section>
+  <h2>配置文件</h2>
+  <div id="configList"></div>
+  <div class="row" style="margin-top:10px;">
+    <span class="desc" style="flex:1;">编辑 pi 配置（models.json / settings.json / auth.json）。保存前自动备份，重启 Agent 后生效。</span>
+  </div>
+</section>
+
+<!-- 配置编辑模态框 -->
+<div class="modal-overlay config-modal" id="configModal">
+  <div class="modal" style="width:560px;">
+    <h3 id="configTitle">编辑配置</h3>
+    <div class="path-hint" id="configPath"></div>
+    <textarea id="configContent" spellcheck="false"></textarea>
+    <div class="modal-actions">
+      <button class="btn" id="configCancelBtn">取消</button>
+      <button class="btn primary" id="configSaveBtn">保存</button>
+    </div>
+  </div>
+</div>
 
 <script>
 (function () {
@@ -166,7 +204,77 @@
     })[ch]);
   }
 
+  // ---- 配置文件编辑器 ----
+  const configList = document.getElementById('configList');
+  const configModal = document.getElementById('configModal');
+  const configTitle = document.getElementById('configTitle');
+  const configPath = document.getElementById('configPath');
+  const configContent = document.getElementById('configContent');
+  let currentConfigName = null;
+
+  async function loadConfigList() {
+    try {
+      const files = await window.piSettings.configList();
+      configList.innerHTML = '';
+      for (const f of files) {
+        const row = document.createElement('div');
+        row.className = 'config-row';
+        const meta = f.exists
+          ? (f.size + ' 字节' + (f.mtime ? ' · ' + f.mtime.slice(0, 16).replace('T', ' ') : ''))
+          : '不存在（可创建）';
+        row.innerHTML = '<span class="cname">' + escapeHtml(f.name) + '</span>'
+          + '<span class="cmeta">' + meta + '</span>'
+          + (f.sensitive ? '<span class="sensitive">⚠ 含密钥</span>' : '')
+          + '<button class="btn" data-config="' + escapeHtml(f.name) + '">' + (f.exists ? '编辑' : '创建') + '</button>';
+        row.querySelector('button').addEventListener('click', () => openConfigEditor(f));
+        configList.appendChild(row);
+      }
+    } catch (e) {
+      showBanner('配置列表加载失败：' + e.message);
+    }
+  }
+
+  async function openConfigEditor(file) {
+    try {
+      let content = '{}';
+      if (file.exists) {
+        const r = await window.piSettings.configRead(file.name);
+        content = r.content;
+      }
+      currentConfigName = file.name;
+      configTitle.textContent = '编辑 ' + file.name;
+      configPath.textContent = file.filePath;
+      configContent.value = content;
+      configModal.classList.add('show');
+      if (file.sensitive) showBanner('⚠ 该文件包含 API 密钥，请勿分享此内容');
+    } catch (e) {
+      showBanner('读取失败：' + e.message);
+    }
+  }
+
+  function hideConfigEditor() {
+    configModal.classList.remove('show');
+    currentConfigName = null;
+  }
+
+  async function saveConfig() {
+    if (!currentConfigName) return;
+    try {
+      const r = await window.piSettings.configWrite(currentConfigName, configContent.value);
+      showBanner('已保存（已自动备份）' + (r.keys ? '，含键: ' + r.keys.join(', ') : ''));
+      hideConfigEditor();
+      await loadConfigList();
+    } catch (e) {
+      showBanner('保存失败：' + e.message);
+    }
+  }
+
+  document.getElementById('configCancelBtn').addEventListener('click', hideConfigEditor);
+  document.getElementById('configSaveBtn').addEventListener('click', saveConfig);
+  configModal.addEventListener('click', (e) => { if (e.target === configModal) hideConfigEditor(); });
+
   load();
+  loadConfigList();
 })();
 </script>
 </body>
