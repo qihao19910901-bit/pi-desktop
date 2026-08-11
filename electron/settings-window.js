@@ -99,7 +99,7 @@ function createSettingsHandlers({
 
 let settingsWindow = null;
 
-function createSettingsWindow({ projectRoot, app, shell, handlers } = {}) {
+function createSettingsWindow({ projectRoot, app, shell, handlers, port = 30141 } = {}) {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.show();
     settingsWindow.focus();
@@ -131,7 +131,7 @@ function createSettingsWindow({ projectRoot, app, shell, handlers } = {}) {
     'settings:get-state', 'settings:set-autostart', 'settings:set-shortcut',
     'settings:open-log-dir', 'settings:check-update', 'settings:copy-diagnostics',
     'settings:config-list', 'settings:config-read', 'settings:config-write',
-    'settings:session-scan', 'settings:session-import',
+    'settings:session-scan', 'settings:session-import', 'settings:skill-install',
   ]) {
     ipcMain.removeHandler(channel);
   }
@@ -147,6 +147,18 @@ function createSettingsWindow({ projectRoot, app, shell, handlers } = {}) {
   const { scanClaude, scanCodex, importSession } = require('./session-import');
   ipcMain.handle('settings:session-scan', () => ({ claude: scanClaude(), codex: scanCodex() }));
   ipcMain.handle('settings:session-import', (_e, payload) => importSession(payload));
+  const { requestJson } = require('./piweb-fetch');
+  const { resolveDefaultCwd } = require('./default-cwd');
+  ipcMain.handle('settings:skill-install', async (_e, pkg) => {
+    if (typeof pkg !== 'string' || !pkg.trim()) throw new Error('请输入技能包地址');
+    const cwd = resolveDefaultCwd();
+    const data = await requestJson(`http://127.0.0.1:${port}/api/skills/install`, {
+      method: 'POST',
+      body: { cwd, package: pkg.trim() },
+      timeoutMs: 120000,
+    });
+    return data;
+  });
 
   win.loadFile(path.join(__dirname, 'settings.html'));
   win.once('ready-to-show', () => win.show());

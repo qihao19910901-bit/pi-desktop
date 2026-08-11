@@ -134,6 +134,17 @@
   </div>
 </section>
 
+<section>
+  <h2>技能安装</h2>
+  <div class="row">
+    <input type="text" id="skillInput" style="flex:1;min-width:200px;background:#11111b;color:#cdd6f4;border:1px solid #45475a;border-radius:6px;padding:6px 10px;font-size:12px;font-family:Consolas,monospace;" placeholder="技能包地址：skills.sh URL 或 GitHub 仓库地址">
+    <button class="btn primary" id="skillInstallBtn">安装</button>
+  </div>
+  <div class="row">
+    <span class="desc">从 skills.sh 或 GitHub 安装技能（如 https://github.com/vercel-labs/skills）。安装后重启 Agent 生效。</span>
+  </div>
+</section>
+
 <!-- 配置编辑模态框 -->
 <div class="modal-overlay config-modal" id="configModal">
   <div class="modal" style="width:560px;">
@@ -368,6 +379,21 @@
     showBanner('导入完成：成功 ' + ok + '，失败 ' + fail);
     await loadImportList();
   });
+
+  // ---- 技能安装 ----
+  const skillInput = document.getElementById('skillInput');
+  document.getElementById('skillInstallBtn').addEventListener('click', async () => {
+    const pkg = skillInput.value.trim();
+    if (!pkg) { showBanner('请输入技能包地址'); return; }
+    try {
+      const r = await window.piSettings.skillInstall(pkg);
+      showBanner('技能安装成功' + (r && r.skill ? '：' + r.skill : ''));
+      skillInput.value = '';
+    } catch (e) {
+      showBanner('安装失败：' + e.message);
+    }
+  });
+  skillInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('skillInstallBtn').click(); });
 
   load();
   loadConfigList();

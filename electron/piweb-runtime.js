@@ -1,4 +1,5 @@
 const path = require('node:path');
+const fs = require('node:fs');
 
 const DEFAULT_PORT = 30141;
 
@@ -27,6 +28,16 @@ function buildPiWebLaunchSpec(options) {
   childEnv.ELECTRON_RUN_AS_NODE = '1';
   childEnv.PI_WEB_NO_OPEN = '1';
   childEnv.NEXT_TELEMETRY_DISABLED = '1';
+  // 打包版 PATH 可能不含 npm/npx（pi-web 的 skills install 用 npx 拉技能包）
+  const npmPrefix = process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : null;
+  if (npmPrefix && fs.existsSync(npmPrefix)) {
+    const existing = childEnv.PATH || childEnv.Path || '';
+    if (existing && !existing.toLowerCase().includes(npmPrefix.toLowerCase())) {
+      childEnv.PATH = npmPrefix + path.delimiter + existing;
+    } else if (!existing) {
+      childEnv.PATH = npmPrefix;
+    }
+  }
   return {
     command: execPath,
     entry,

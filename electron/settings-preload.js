@@ -13,4 +13,5 @@ contextBridge.exposeInMainWorld('piSettings', {
   configWrite: (name, content) => ipcRenderer.invoke('settings:config-write', name, content),
   sessionScan: () => ipcRenderer.invoke('settings:session-scan'),
   sessionImport: (payload) => ipcRenderer.invoke('settings:session-import', payload),
+  skillInstall: (pkg) => ipcRenderer.invoke('settings:skill-install', pkg),
 });
