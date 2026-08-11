@@ -131,6 +131,7 @@ function createSettingsWindow({ projectRoot, app, shell, handlers } = {}) {
     'settings:get-state', 'settings:set-autostart', 'settings:set-shortcut',
     'settings:open-log-dir', 'settings:check-update', 'settings:copy-diagnostics',
     'settings:config-list', 'settings:config-read', 'settings:config-write',
+    'settings:session-scan', 'settings:session-import',
   ]) {
     ipcMain.removeHandler(channel);
   }
@@ -143,6 +144,9 @@ function createSettingsWindow({ projectRoot, app, shell, handlers } = {}) {
   ipcMain.handle('settings:config-list', () => listConfigFiles());
   ipcMain.handle('settings:config-read', (_e, name) => readConfigFile(name));
   ipcMain.handle('settings:config-write', (_e, name, content) => writeConfigFile(name, content));
+  const { scanClaude, scanCodex, importSession } = require('./session-import');
+  ipcMain.handle('settings:session-scan', () => ({ claude: scanClaude(), codex: scanCodex() }));
+  ipcMain.handle('settings:session-import', (_e, payload) => importSession(payload));
 
   win.loadFile(path.join(__dirname, 'settings.html'));
   win.once('ready-to-show', () => win.show());

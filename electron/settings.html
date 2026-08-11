@@ -56,6 +56,20 @@
     resize: vertical; margin-bottom: 10px;
   }
   .config-modal .path-hint { font-size: 11px; color: #585b70; margin-bottom: 8px; word-break: break-all; }
+
+  /* 会话导入 */
+  .import-tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+  .import-tab {
+    padding: 4px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;
+    background: #313244; color: #a6adc8; border: 1px solid #45475a;
+  }
+  .import-tab.active { background: #89b4fa; color: #11111b; border-color: #89b4fa; }
+  .import-item {
+    display: flex; align-items: center; gap: 10px; padding: 6px 0;
+    border-bottom: 1px solid #313244; font-size: 12px; flex-wrap: wrap;
+  }
+  .import-item .iname { font-family: Consolas, monospace; color: #a6adc8; flex: 1; min-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .import-item .imeta { color: #6c7086; }
 </style>
 </head>
 <body>
@@ -104,6 +118,19 @@
   <div id="configList"></div>
   <div class="row" style="margin-top:10px;">
     <span class="desc" style="flex:1;">编辑 pi 配置（models.json / settings.json / auth.json）。保存前自动备份，重启 Agent 后生效。</span>
+  </div>
+</section>
+
+<section>
+  <h2>会话导入</h2>
+  <div class="import-tabs">
+    <span class="import-tab active" data-src="claude">Claude 会话</span>
+    <span class="import-tab" data-src="codex">Codex 会话</span>
+  </div>
+  <div id="importList" style="max-height:220px;overflow-y:auto;"></div>
+  <div class="row" style="margin-top:10px;">
+    <span class="desc" style="flex:1;">把 Claude/Codex 的历史会话导入为 pi 会话（复制到 ~/.pi/agent/sessions），导入后可在侧边栏浏览恢复。</span>
+    <button class="btn primary" id="importAllBtn">导入全部</button>
   </div>
 </section>
 
@@ -273,8 +300,78 @@
   document.getElementById('configSaveBtn').addEventListener('click', saveConfig);
   configModal.addEventListener('click', (e) => { if (e.target === configModal) hideConfigEditor(); });
 
+  // ---- 会话导入 ----
+  const importList = document.getElementById('importList');
+  let importSessions = { claude: [], codex: [] };
+  let importSource = 'claude';
+  const IMPORT_CWD = 'F:/软件/我的秘籍';
+
+  async function loadImportList() {
+    try {
+      importSessions = await window.piSettings.sessionScan();
+      renderImportList();
+    } catch (e) {
+      importList.innerHTML = '<div class="desc">扫描失败：' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  function renderImportList() {
+    const items = importSessions[importSource] || [];
+    if (items.length === 0) {
+      importList.innerHTML = '<div class="desc">未发现 ' + (importSource === 'claude' ? 'Claude' : 'Codex') + ' 会话（' + (importSource === 'claude' ? '~/.claude/projects' : '~/.codex/sessions') + '）。</div>';
+      return;
+    }
+    importList.innerHTML = '';
+    for (const s of items.slice(0, 50)) {
+      const row = document.createElement('div');
+      row.className = 'import-item';
+      row.innerHTML = '<span class="iname" title="' + escapeHtml(s.source) + '">' + escapeHtml(s.sessionId.slice(0, 13)) + '</span>'
+        + '<span class="imeta">' + (s.size / 1024).toFixed(0) + 'KB · ' + escapeHtml(s.mtime.slice(0, 10)) + '</span>'
+        + '<button class="btn" data-import="' + escapeHtml(s.source) + '">导入</button>';
+      row.querySelector('button').addEventListener('click', () => doImport(s.source));
+      importList.appendChild(row);
+    }
+    if (items.length > 50) {
+      const more = document.createElement('div');
+      more.className = 'desc';
+      more.textContent = '…还有 ' + (items.length - 50) + ' 个（导入全部会一起处理）';
+      importList.appendChild(more);
+    }
+  }
+
+  async function doImport(source) {
+    try {
+      const r = await window.piSettings.sessionImport({ source, type: importSource, cwd: IMPORT_CWD });
+      showBanner('已导入 ' + r.messageCount + ' 条消息 → ' + r.sessionFile.split(/[\\/]/).pop());
+      await loadImportList();
+    } catch (e) {
+      showBanner('导入失败：' + e.message);
+    }
+  }
+
+  document.querySelectorAll('.import-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.import-tab').forEach((x) => x.classList.remove('active'));
+      tab.classList.add('active');
+      importSource = tab.dataset.src;
+      renderImportList();
+    });
+  });
+  document.getElementById('importAllBtn').addEventListener('click', async () => {
+    const items = importSessions[importSource] || [];
+    if (items.length === 0) { showBanner('没有可导入的会话'); return; }
+    let ok = 0, fail = 0;
+    for (const s of items) {
+      try { await window.piSettings.sessionImport({ source: s.source, type: importSource, cwd: IMPORT_CWD }); ok++; }
+      catch { fail++; }
+    }
+    showBanner('导入完成：成功 ' + ok + '，失败 ' + fail);
+    await loadImportList();
+  });
+
   load();
   loadConfigList();
+  loadImportList();
 })();
 </script>
 </body>
