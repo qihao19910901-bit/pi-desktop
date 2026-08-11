@@ -60,21 +60,23 @@ function createTerminalManager({ ptyFactory, killTree } = {}) {
     },
     spawnTab({ shell, cwd, cols = 100, rows = 30, onData, onExit }) {
       const id = nextId++;
-      const pty = ptyFactory.spawn(shell, shell.endsWith('cmd.exe') ? [] : [], {
+      const isCmd = /cmd\.exe$/i.test(shell);
+      const pty = ptyFactory.spawn(shell, isCmd ? [] : [], {
         name: 'xterm-256color',
         cols,
         rows,
         cwd,
-        env: { ...process.env, TERM: 'xterm-256color' },
+        // bash 启动即 UTF-8（避免首行提示符 GBK 乱码）；cmd 用 chcp 写入
+        env: isCmd
+          ? { ...process.env, TERM: 'xterm-256color' }
+          : { ...process.env, TERM: 'xterm-256color', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
       });
       const tab = { id, shell, cwd, pty, guard: createLineGuard(), queue: null };
       tabs.set(id, tab);
       pty.onData((data) => onData && onData(id, data));
       pty.onExit(({ exitCode }) => onExit && onExit(id, exitCode));
-      // 强制 UTF-8：Git Bash 在中文 Windows 下默认 GBK 输出，会导致终端乱码
-      if (!/cmd\.exe$/i.test(shell)) {
-        try { pty.write('export LANG=C.UTF-8 LC_ALL=C.UTF-8\n'); } catch (e) { /* 忽略 */ }
-      } else {
+      // cmd 无 LANG 环境变量，用 chcp 65001 切换 UTF-8 代码页
+      if (isCmd) {
         try { pty.write('chcp 65001 >nul\r'); } catch (e) { /* 忽略 */ }
       }
       return id;

@@ -106,6 +106,8 @@
       fontSize: 13,
       fontWeight: '400',
       letterSpacing: 0,
+      // DOM 渲染器：不依赖 canvas 字形测量，规避字符错位/列宽问题
+      rendererType: 'dom',
       theme: { background: '#1e1e2e', foreground: '#cdd6f4', cursor: '#89b4fa' },
       scrollback: 5000,
     });
