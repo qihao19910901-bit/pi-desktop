@@ -63,6 +63,24 @@ test('repeated update events do not repeat the discovery prompt', async () => {
   assert.match(dialog.showMessageBox.mock.calls[0].arguments[0].message, /发现新版本/);
 });
 
+test('completion prompt blocks duplicate update downloads until dismissed', async () => {
+  let downloads = 0;
+  const { autoUpdater, controller, dialog } = createHarness({
+    download: async () => { downloads += 1; return true; },
+    buildUrls: () => ['https://mirror.test/x.exe'],
+  });
+  dialog.showMessageBox.mock.mockImplementation((options) =>
+    options.title === '更新包已就绪' ? new Promise(() => {}) : Promise.resolve({ response: 1 }));
+  controller.init();
+  const info = { version: '2.0.0', files: [{ url: 'https://github.com/qihao19910901-bit/pi-desktop/releases/download/v2.0.0/x.exe', size: 100 }] };
+  autoUpdater.emit('update-available', info);
+  for (let attempt = 0; attempt < 10 && downloads === 0; attempt += 1) await waitForImmediate();
+  autoUpdater.emit('update-available', info);
+  await waitForImmediate();
+  assert.equal(downloads, 1);
+  assert.equal(dialog.showMessageBox.mock.callCount(), 2);
+});
+
 test('mirror download failure shows a manual-download hint', async () => {
   const { autoUpdater, controller, dialog } = createHarness({
     download: async () => false,

@@ -208,8 +208,9 @@ function createUpdaterController({
     try {
       await startMirrorDownload(info);
     } catch (e) {
-      mirrorDownloading = false;
       logger.error('[updater] 更新下载异常:', e.message);
+    } finally {
+      mirrorDownloading = false;
     }
   }
 
@@ -217,17 +218,15 @@ function createUpdaterController({
     const urls = buildUrls(info);
     if (urls.length === 0) {
       logger.error('[updater] 无法构造下载地址（缺少有效 Release 或 files 元数据）');
-      mirrorDownloading = false;
       return;
     }
     const dest = path.join(desktopPath || require('node:os').homedir(), `Pi-Desktop-Setup-${info.version}.exe`);
     logger.log(`[updater] 镜像下载开始: v${info.version} → ${dest}`);
     logger.log(`[updater] 候选源: ${urls.join(' | ')}`);
     const ok = await download(urls, dest, { onProgress: (bytes) => logger.log(`[updater] 下载进度: ${Math.round(bytes / 1048576)}MB`), expectedSize: info.files?.[0]?.size || 0 });
-    mirrorDownloading = false;
     if (!ok) {
       logger.error('[updater] 镜像下载失败（已重试多轮），请手动下载: https://github.com/qihao19910901-bit/pi-desktop/releases');
-      Promise.resolve().then(() => dialog.showMessageBox({
+      await Promise.resolve().then(() => dialog.showMessageBox({
         type: 'warning',
         title: '更新下载失败',
         message: `新版本 ${info.version} 下载失败`,
@@ -237,7 +236,7 @@ function createUpdaterController({
       return;
     }
     logger.log('[updater] 镜像下载完成');
-    Promise.resolve().then(() => dialog.showMessageBox({
+    await Promise.resolve().then(() => dialog.showMessageBox({
       type: 'info',
       title: '更新包已就绪',
       message: `新版本 ${info.version} 已下载到桌面`,
