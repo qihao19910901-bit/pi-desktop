@@ -14,6 +14,8 @@ const builder = YAML.parse(fs.readFileSync(
 test('runtime and build dependencies are exact', () => {
   assert.equal(pkg.overrides?.['@agegr/pi-web']?.['@earendil-works/pi-coding-agent'],
     '$@earendil-works/pi-coding-agent');
+  assert.equal(pkg.dependencies['@agegr/pi-web'], '0.8.11');
+  assert.equal(pkg.dependencies['@earendil-works/pi-coding-agent'], '0.84.3');
   assert.equal(pkg.dependencies['electron-updater'], '6.8.9');
   assert.equal(pkg.devDependencies.electron, '43.2.0');
   assert.equal(pkg.devDependencies['electron-builder'], '26.15.3');

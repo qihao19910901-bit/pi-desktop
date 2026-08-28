@@ -5,6 +5,12 @@ const { test, mock } = require('node:test');
 
 const { createUpdaterController } = require('../electron/updater');
 
+async function waitForDialogCount(dialog, count) {
+  for (let attempt = 0; attempt < 10 && dialog.showMessageBox.mock.callCount() < count; attempt += 1) {
+    await waitForImmediate();
+  }
+}
+
 function createHarness({ isPackaged = true, ...extra } = {}) {
   const autoUpdater = Object.assign(new EventEmitter(), {
     checkForUpdatesAndNotify: mock.fn(() => Promise.resolve()),
@@ -34,12 +40,45 @@ test('update-available triggers the mirror download flow', async () => {
   });
   controller.init();
   autoUpdater.emit('update-available', { version: '2.0.0', files: [{ url: 'https://github.com/x/y.exe', size: 100 }] });
-  await waitForImmediate();
-  // 下载完成后弹窗提示（不自动安装）
+  await waitForDialogCount(dialog, 2);
+  // 先提示发现更新，下载完成后再提示手动安装（不自动安装）
   assert.equal(autoUpdater.quitAndInstall.mock.callCount(), 0);
-  assert.equal(dialog.showMessageBox.mock.callCount(), 1);
-  assert.match(dialog.showMessageBox.mock.calls[0].arguments[0].message, /2\.0\.0/);
+  assert.equal(dialog.showMessageBox.mock.callCount(), 2);
+  assert.match(dialog.showMessageBox.mock.calls[0].arguments[0].message, /发现新版本/);
+  assert.match(dialog.showMessageBox.mock.calls[1].arguments[0].message, /2\.0\.0/);
   assert.match(logger.log.mock.calls.map(c => c.arguments.join(' ')).join('\n'), /镜像下载开始/);
+});
+
+test('repeated update events do not repeat the discovery prompt', async () => {
+  const { autoUpdater, controller, dialog } = createHarness({
+    download: async () => new Promise(() => {}),
+    buildUrls: () => ['https://mirror.test/x.exe'],
+  });
+  controller.init();
+  const info = { version: '2.0.0', files: [{ url: 'https://github.com/x/y.exe', size: 100 }] };
+  autoUpdater.emit('update-available', info);
+  autoUpdater.emit('update-available', info);
+  await waitForDialogCount(dialog, 1);
+  assert.equal(dialog.showMessageBox.mock.callCount(), 1);
+  assert.match(dialog.showMessageBox.mock.calls[0].arguments[0].message, /发现新版本/);
+});
+
+test('completion prompt blocks duplicate update downloads until dismissed', async () => {
+  let downloads = 0;
+  const { autoUpdater, controller, dialog } = createHarness({
+    download: async () => { downloads += 1; return true; },
+    buildUrls: () => ['https://mirror.test/x.exe'],
+  });
+  dialog.showMessageBox.mock.mockImplementation((options) =>
+    options.title === '更新包已就绪' ? new Promise(() => {}) : Promise.resolve({ response: 1 }));
+  controller.init();
+  const info = { version: '2.0.0', files: [{ url: 'https://github.com/qihao19910901-bit/pi-desktop/releases/download/v2.0.0/x.exe', size: 100 }] };
+  autoUpdater.emit('update-available', info);
+  for (let attempt = 0; attempt < 10 && downloads === 0; attempt += 1) await waitForImmediate();
+  autoUpdater.emit('update-available', info);
+  await waitForImmediate();
+  assert.equal(downloads, 1);
+  assert.equal(dialog.showMessageBox.mock.callCount(), 2);
 });
 
 test('mirror download failure shows a manual-download hint', async () => {
@@ -48,10 +87,14 @@ test('mirror download failure shows a manual-download hint', async () => {
     desktopPath: 'C:/Users/me/Desktop',
   });
   controller.init();
-  autoUpdater.emit('update-available', { version: '2.0.0', files: [{ url: 'https://github.com/x/y.exe', size: 100 }] });
-  await waitForImmediate();
-  assert.equal(dialog.showMessageBox.mock.callCount(), 1);
-  assert.match(dialog.showMessageBox.mock.calls[0].arguments[0].message, /下载失败/);
+  autoUpdater.emit('update-available', {
+    version: '2.0.0',
+    files: [{ url: 'https://github.com/qihao19910901-bit/pi-desktop/releases/download/v2.0.0/x.exe', size: 100 }],
+  });
+  await waitForDialogCount(dialog, 2);
+  assert.equal(dialog.showMessageBox.mock.callCount(), 2);
+  assert.match(dialog.showMessageBox.mock.calls[0].arguments[0].message, /发现新版本/);
+  assert.match(dialog.showMessageBox.mock.calls[1].arguments[0].message, /下载失败/);
 });
 
 test('development mode skips listeners and automatic update checks', () => {
@@ -122,6 +165,37 @@ test('buildDownloadUrls prefers mirrors then falls back to github direct', () =>
   assert.match(urls[0], /^https:\/\/ghproxy\.net\//);
   assert.match(urls[1], /^https:\/\/gh-proxy\.com\//);
   assert.equal(urls[2], 'https://github.com/qihao19910901-bit/pi-desktop/releases/download/v1.0.0/x.exe');
+});
+
+test('buildDownloadUrls resolves relative release assets to the GitHub release', () => {
+  const info = {
+    version: '1.1.27',
+    releaseUrl: 'https://github.com/qihao19910901-bit/pi-desktop/releases/tag/v1.1.27',
+    files: [{ url: 'Pi-Desktop-Setup-1.1.27.exe' }],
+  };
+  const urls = buildDownloadUrls(info);
+  const direct = 'https://github.com/qihao19910901-bit/pi-desktop/releases/download/v1.1.27/Pi-Desktop-Setup-1.1.27.exe';
+  assert.deepEqual(urls, [
+    `https://ghproxy.net/${direct}`,
+    `https://gh-proxy.com/${direct}`,
+    direct,
+  ]);
+});
+
+test('buildDownloadUrls keeps a trusted full asset URL unchanged', () => {
+  const direct = 'https://github.com/qihao19910901-bit/pi-desktop/releases/download/v1.1.27/Pi-Desktop-Setup-1.1.27.exe';
+  assert.equal(buildDownloadUrls({ version: '1.1.27', files: [{ url: direct }] })[2], direct);
+});
+
+test('buildDownloadUrls rejects a full asset URL from another host', () => {
+  assert.deepEqual(buildDownloadUrls({
+    version: '1.1.27',
+    files: [{ url: 'https://example.com/Pi-Desktop-Setup-1.1.27.exe' }],
+  }), []);
+});
+
+test('buildDownloadUrls rejects a relative asset without release metadata', () => {
+  assert.deepEqual(buildDownloadUrls({ files: [{ url: 'Pi-Desktop-Setup-1.1.27.exe' }] }), []);
 });
 
 test('buildDownloadUrls returns empty without files metadata', () => {

@@ -158,14 +158,14 @@ test('cleanup accepts a stop race only after the owned process exits', async () 
   assert.deepEqual(result, { pid: 4321, portsClosed: [], stopError: 'already gone' });
 });
 test('UI polling requires the stable empty-page labels without real sleeps', async () => {
-  const values = ['Loading', 'Models 技能', 'Models 技能 Plugins'];
+  const values = ['Loading', 'Models 技能', 'Models 技能 设置'];
   let delays = 0;
   const result = await waitForUiContent({
     evaluate: async () => values.shift(),
     now: () => 0,
     delay: async () => { delays += 1; },
   });
-  assert.deepEqual(result.content, ['Models', 'Skills', 'Plugins']);
+  assert.deepEqual(result.content, ['Models', 'Skills', 'Settings']);
   assert.equal(delays, 2);
 });
 test('UI polling requires every semantic label in either supported locale', async () => {
@@ -174,27 +174,27 @@ test('UI polling requires every semantic label in either supported locale', asyn
     timeoutMs: 1,
     now: (() => { const times = [0, 0, 1]; return () => times.shift() ?? 1; })(),
     delay: async () => {},
-  }), (error) => error.missing.length === 1 && error.missing[0] === 'Plugins');
+  }), (error) => error.missing.length === 1 && error.missing[0] === 'Settings');
 });
 test('UI polling retries a transient missing execution context', async () => {
   const transient = Object.assign(new Error('Cannot find default execution context'), { cdpCode: -32000 });
-  const values = [transient, '模型 技能 插件'];
+  const values = [transient, '模型 技能 设置'];
   const result = await waitForUiContent({
     evaluate: async () => { const value = values.shift(); if (value instanceof Error) throw value; return value; },
     now: () => 0,
     delay: async () => {},
   });
-  assert.deepEqual(result.content, ['Models', 'Skills', 'Plugins']);
+  assert.deepEqual(result.content, ['Models', 'Skills', 'Settings']);
 });
 test('UI polling retries an explicitly destroyed execution context', async () => {
   const transient = Object.assign(new Error('Execution context was destroyed.'), { cdpCode: -32000 });
-  const values = [transient, 'Models Skills Plugins'];
+  const values = [transient, 'Models Skills Settings'];
   const result = await waitForUiContent({
     evaluate: async () => { const value = values.shift(); if (value instanceof Error) throw value; return value; },
     now: () => 0,
     delay: async () => {},
   });
-  assert.deepEqual(result.content, ['Models', 'Skills', 'Plugins']);
+  assert.deepEqual(result.content, ['Models', 'Skills', 'Settings']);
 });
 test('UI polling rethrows a non-transient CDP error immediately', async () => {
   const fatal = Object.assign(new Error('Permission denied'), { cdpCode: -32000 });
@@ -237,10 +237,10 @@ test('UI timeout preserves last text, missing labels, and HTTP evidence', async 
     delay: async () => {},
     http: { statusCode: 200, responseMs: 42 },
   }), (error) => {
-    assert.match(error.message, /UI content timed out.*Models, Plugins/);
+    assert.match(error.message, /UI content timed out.*Models, Settings/);
     assert.equal(error.lastText, 'Skills only');
     assert.equal(error.lastBodyExcerpt, 'Skills only');
-    assert.deepEqual(error.missing, ['Models', 'Plugins']);
+    assert.deepEqual(error.missing, ['Models', 'Settings']);
     assert.deepEqual(error.http, { statusCode: 200, responseMs: 42 });
     return true;
   });
@@ -259,7 +259,7 @@ test('UI timeout preserves the last transient dispatcher error after the fixed d
     assert.equal(error.cause, transient);
     assert.equal(error.lastCdpError, 'CDP error -32000: Cannot find default execution context');
     assert.equal(error.lastText, '');
-    assert.deepEqual(error.missing, ['Models', 'Skills', 'Plugins']);
+    assert.deepEqual(error.missing, ['Models', 'Skills', 'Settings']);
     assert.deepEqual(error.http, httpEvidence);
     return true;
   });

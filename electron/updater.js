@@ -28,12 +28,43 @@ function createFileLogger(userDataDir) {
 
 // ============ 镜像下载（纯逻辑，可测） ============
 
+const RELEASE_DOWNLOAD_BASE = 'https://github.com/qihao19910901-bit/pi-desktop/releases/download';
+
+function resolveReleaseTag(info) {
+  const releaseUrl = typeof info?.releaseUrl === 'string' ? info.releaseUrl : '';
+  const match = releaseUrl.match(/\/releases\/tag\/([^/?#]+)\/?(?:[?#].*)?$/);
+  if (match) return match[1];
+
+  const version = typeof info?.version === 'string' ? info.version.trim() : '';
+  if (!/^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) return null;
+  return version.startsWith('v') ? version : `v${version}`;
+}
+
+function resolveGithubAssetUrl(info) {
+  const assetUrl = info?.files?.[0]?.url;
+  if (typeof assetUrl !== 'string' || assetUrl.length === 0) return null;
+
+  try {
+    const parsed = new URL(assetUrl);
+    if (parsed.protocol === 'https:'
+      && parsed.hostname === 'github.com'
+      && parsed.pathname.startsWith('/qihao19910901-bit/pi-desktop/releases/download/')) {
+      return parsed.href;
+    }
+    return null;
+  } catch {
+    // latest.yml normally contains a relative asset filename.
+  }
+
+  if (assetUrl.includes('/') || assetUrl.includes('\\')) return null;
+  const tag = resolveReleaseTag(info);
+  if (!tag) return null;
+  return `${RELEASE_DOWNLOAD_BASE}/${encodeURIComponent(tag)}/${encodeURIComponent(assetUrl)}`;
+}
+
 // 生成候选下载 URL：ghproxy 镜像优先，GitHub 直连兜底
 function buildDownloadUrls(info) {
-  const githubUrl = typeof info.files === 'object' && Array.isArray(info.files)
-    && info.files[0] && info.files[0].url
-    ? info.files[0].url
-    : null;
+  const githubUrl = resolveGithubAssetUrl(info);
   if (!githubUrl) return [];
   const mirrors = [
     'https://ghproxy.net/',
@@ -112,6 +143,7 @@ function createUpdaterController({
   let initialized = false;
   let checkAttempts = 0;
   let mirrorDownloading = false;
+  let announcedVersion = null;
   const MAX_CHECK_ATTEMPTS = 3;
   const RETRY_DELAY_MS = 60000;
 
@@ -135,7 +167,7 @@ function createUpdaterController({
       logger.log('[updater] 发现新版本:', info.version);
       if (mirrorDownloading) return;
       mirrorDownloading = true;
-      startMirrorDownload(info);
+      startUpdate(info);
     });
     autoUpdater.on('update-not-available', () => {
       logger.log('[updater] 已是最新版本');
@@ -162,21 +194,39 @@ function createUpdaterController({
     logger.log('[updater] 自动更新已启用（镜像下载模式），日志: ' + (logger.getLogFile ? logger.getLogFile() : '(控制台)'));
   }
 
+  async function startUpdate(info) {
+    if (announcedVersion !== info.version) {
+      announcedVersion = info.version;
+      await Promise.resolve().then(() => dialog.showMessageBox({
+        type: 'info',
+        title: '发现新版本',
+        message: `发现新版本 ${info.version}`,
+        detail: '正在准备下载更新包，完成后会提示你手动安装。',
+        buttons: ['确定'],
+      })).catch((e) => logger.error('[updater] 更新提示失败:', e.message));
+    }
+    try {
+      await startMirrorDownload(info);
+    } catch (e) {
+      logger.error('[updater] 更新下载异常:', e.message);
+    } finally {
+      mirrorDownloading = false;
+    }
+  }
+
   async function startMirrorDownload(info) {
     const urls = buildUrls(info);
     if (urls.length === 0) {
-      logger.error('[updater] 无法构造下载地址（无 files 元数据）');
-      mirrorDownloading = false;
+      logger.error('[updater] 无法构造下载地址（缺少有效 Release 或 files 元数据）');
       return;
     }
     const dest = path.join(desktopPath || require('node:os').homedir(), `Pi-Desktop-Setup-${info.version}.exe`);
     logger.log(`[updater] 镜像下载开始: v${info.version} → ${dest}`);
     logger.log(`[updater] 候选源: ${urls.join(' | ')}`);
     const ok = await download(urls, dest, { onProgress: (bytes) => logger.log(`[updater] 下载进度: ${Math.round(bytes / 1048576)}MB`), expectedSize: info.files?.[0]?.size || 0 });
-    mirrorDownloading = false;
     if (!ok) {
       logger.error('[updater] 镜像下载失败（已重试多轮），请手动下载: https://github.com/qihao19910901-bit/pi-desktop/releases');
-      Promise.resolve().then(() => dialog.showMessageBox({
+      await Promise.resolve().then(() => dialog.showMessageBox({
         type: 'warning',
         title: '更新下载失败',
         message: `新版本 ${info.version} 下载失败`,
@@ -186,7 +236,7 @@ function createUpdaterController({
       return;
     }
     logger.log('[updater] 镜像下载完成');
-    Promise.resolve().then(() => dialog.showMessageBox({
+    await Promise.resolve().then(() => dialog.showMessageBox({
       type: 'info',
       title: '更新包已就绪',
       message: `新版本 ${info.version} 已下载到桌面`,
